@@ -1,6 +1,6 @@
 {
   "name": "agents",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "description": "GUI for managing multiple Claude Code CLI accounts and sessions",
   "author": "Lucas",
   "main": "out/main/index.js",
