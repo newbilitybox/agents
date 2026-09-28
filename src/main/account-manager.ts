@@ -7,6 +7,7 @@ import type { LoginLinks, LoginResult, NewAccountInput } from '../shared/ipc'
 import type { AppStore } from './store'
 import type { PtyManager } from './pty-manager'
 import { authStatus, claudeLogout, claudePath, envFor, extractLoginUrl, fetchUsage, scratchCwd, stripAnsi } from './claude-cli'
+import { logResources } from './resource-log'
 
 /** utilization at/above which an account is treated as (nearly) spent:
  *  sessions switch away before submitting, and pickAccount prefers others */
@@ -233,6 +234,7 @@ export class AccountManager {
         .filter((a) => a.loginStatus === 'logged_in')
         .map((a) => this.refreshUsage(a.configDir))
     )
+    void logResources() // after each sweep: pty / process / fd counts to <userData>/resources.log
   }
 
   /** Called by SessionManager when a statusline event carries rate_limits.
