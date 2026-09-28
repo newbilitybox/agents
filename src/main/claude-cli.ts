@@ -454,7 +454,7 @@ export function tuiInputState(chunk: string): 'ready' | 'modal' | null {
     return i
   }
   const ready = last(/\?\s*for\s*shortcuts|Try\s*"|shift\+tab\s*to\s*cycle|◉\s*agents/gi)
-  const modal = last(/Esc\s*to\s*(?:cancel|close|exit|go\s*back)|Status\s*Config\s*Usage\s*Stats/gi)
+  const modal = last(/Esc\s*to\s*(?:cancel|close|exit|go\s*back)|Status\s*Config\s*(?:Gates\s*)?Usage\s*Stats/gi)
   if (modal < 0 && ready < 0) return null
   return modal > ready ? 'modal' : 'ready'
 }
@@ -463,15 +463,15 @@ export function tuiInputState(chunk: string): 'ready' | 'modal' | null {
  * Current permission mode from TUI output, or null when the buffer carries no
  * signal. The statusline payload does NOT include it (verified 2.1.228), but
  * the input-box footer always names the active mode ("⏸ manual mode on",
- * "⏵⏵ accept edits on", "plan mode on", …) and repaints constantly — so the
+ * "⏵⏵ accept edits on", "plan mode on", "don't ask on", …) and repaints constantly — so the
  * LAST occurrence in the buffer is the current mode. Values match the CLI's
  * --permission-mode choices.
  */
 export function detectPermissionMode(text: string): string | null {
   const s = stripAnsi(text)
   let mode: string | null = null
-  for (const m of s.matchAll(/\b(accept\s*edits|bypass\s*permissions)\s*on\b|\b(manual|auto|dontAsk|plan)\s*mode\s*on\b/gi)) {
-    if (m[1]) mode = /accept/i.test(m[1]) ? 'acceptEdits' : 'bypassPermissions'
+  for (const m of s.matchAll(/\b(accept\s*edits|bypass\s*permissions|don.t\s*ask)\s*on\b|\b(manual|auto|dontAsk|plan)\s*mode\s*on\b/gi)) {
+    if (m[1]) mode = /accept/i.test(m[1]) ? 'acceptEdits' : /ask/i.test(m[1]) ? 'dontAsk' : 'bypassPermissions'
     else mode = /dontask/i.test(m[2]) ? 'dontAsk' : m[2].toLowerCase()
   }
   return mode
@@ -732,7 +732,12 @@ export function sessionArgs(opts: {
   if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode)
   for (const d of opts.addDirs ?? []) args.push('--add-dir', expandHome(d))
   // one argv element — content with spaces/newlines needs no shell quoting here
-  if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt)
+  // snapshot off: since CLI 2.1.267 the system prompt is recorded once per
+  // conversation and replayed verbatim on --resume, so edited prompt files
+  // would be ignored on every respawn (stop→resume, account switch)
+  if (opts.appendSystemPrompt) {
+    args.push('--append-system-prompt', opts.appendSystemPrompt, '--system-prompt-snapshot', 'off')
+  }
   const extra = opts.launchArgs.trim()
   if (extra) args.push(...extra.split(/\s+/))
   return args

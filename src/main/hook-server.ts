@@ -53,7 +53,8 @@ export class HookServer extends EventEmitter {
         /* keep {} */
       }
       this.emit('event', { sessionId, event, payload } satisfies HookEvent)
-      res.end(event === 'statusline' ? this.statuslineText(sessionId) : 'ok')
+      // empty body: curl echoes it and the CLI feeds SessionStart/UserPromptSubmit hook stdout to the model
+      res.end(event === 'statusline' ? this.statuslineText(sessionId) : '')
     })
   }
 }
