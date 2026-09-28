@@ -22,7 +22,7 @@ import { renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 
-const REPO = 'aria0509/agents'
+const REPO = 'newbilitybox/agents'
 const MANIFEST_URL =
   process.env['AGENTS_UPDATE_MANIFEST_URL'] ?? `https://github.com/${REPO}/releases/latest/download/latest.json`
 const AUTO = !!process.env['AGENTS_UPDATE_AUTO']
