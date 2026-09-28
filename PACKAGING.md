@@ -105,6 +105,8 @@ xcrun stapler validate release/Agent\ S-0.1.0-arm64.dmg
 
 App 內建更新器（`src/main/update-manager.ts`）：啟動 15 秒後與每 4 小時檢查一次，tray 也有「檢查更新」。資料來源是 repo 最新 release 的 `latest.json`（`releases/latest/download/latest.json`，repo 為 public 免 token）。
 
+倉庫沿革（2026-09-28）：專案從 `aria0509/agents` 搬到 `newbilitybox/agents`。舊倉庫最後一版 v0.2.26 是「橋接」熱更（asar 內的更新來源已指向新倉庫），舊用戶熱更到它之後就改從新倉庫取更新；**舊倉庫的 v0.2.26 與 v0.2.9（其 manifest 的 full.url）release 不可刪除**，否則尚未升級的舊用戶會失去更新入口。新倉庫從 v0.2.26（full）起算。
+
 **兩種發佈**：
 - **熱更（hot）**：只換 `app.asar`（所有 JS + 依賴，跨架構同一包）。使用者按「更新並重啟」即完成，不重裝。
 - **完整（--full）**：native 有變（**Electron 或 node-pty 版本更動**）時必須用，附 DMG/zip；更新器偵測到 `runtime` 指紋不符時會引導使用者下載重裝。
