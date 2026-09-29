@@ -18,6 +18,7 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   lstatSync,
@@ -88,6 +89,8 @@ export async function claudePath(): Promise<string> {
   return cachedClaudePath
 }
 
+const isDefaultProfile = (configDir: string): boolean => resolve(configDir) === join(homedir(), '.claude')
+
 /**
  * Env for talking to a specific account. The default profile (~/.claude) must
  * NOT set CLAUDE_CONFIG_DIR: with it set, claude expects .claude.json inside
@@ -95,7 +98,7 @@ export async function claudePath(): Promise<string> {
  */
 export async function envFor(configDir: string): Promise<Record<string, string>> {
   const env = { ...(await loginShellEnv()) }
-  if (resolve(configDir) !== join(homedir(), '.claude')) env['CLAUDE_CONFIG_DIR'] = configDir
+  if (!isDefaultProfile(configDir)) env['CLAUDE_CONFIG_DIR'] = configDir
   // suppress the "resume from summary?" dialog on old/large `--resume`s (2.1.212:
   // shown past 70min/100k-token thresholds) — it blocks unattended restore, and a
   // queued auto-"continue" could confirm its default and /compact the session
@@ -196,6 +199,33 @@ export async function authStatus(configDir: string, retry = 1): Promise<AuthStat
   } catch (e) {
     if (retry > 0) return authStatus(configDir, retry - 1)
     throw e
+  }
+}
+
+/** The account's global config file (see envFor for the default profile). */
+const claudeJsonPath = (configDir: string): string =>
+  isDefaultProfile(configDir) ? join(homedir(), '.claude.json') : join(configDir, '.claude.json')
+
+/**
+ * Mark first-run onboarding as done for a logged-in account. `claude auth
+ * login` (OAuth) stores the credentials but never sets `hasCompletedOnboarding`
+ * — only its refresh-token path does (verified 2.1.284) — so the first session
+ * on a freshly added account ran the whole onboarding, theme picker then
+ * "Select login method", asking to log in all over again. Writes only when the
+ * flag is missing. Best-effort: failing just means the onboarding shows.
+ */
+export function markOnboarded(configDir: string): void {
+  try {
+    const file = realpathSync(claudeJsonPath(configDir)) // a symlinked config stays shared
+    const config = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+    if (config['hasCompletedOnboarding'] === true) return
+    // write-then-rename: a claude starting meanwhile never reads half a file
+    const tmp = `${file}.agents-${process.pid}`
+    writeFileSync(tmp, JSON.stringify({ ...config, hasCompletedOnboarding: true }, null, 2), { mode: statSync(file).mode & 0o777 })
+    renameSync(tmp, file)
+  } catch (err) {
+    // no config yet = never logged in, nothing to fix
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') console.warn(`[auth] could not mark ${configDir} onboarded:`, err)
   }
 }
 

@@ -6,7 +6,7 @@ import type { Account, AccountUsage } from '../shared/types'
 import type { LoginLinks, LoginResult, NewAccountInput } from '../shared/ipc'
 import type { AppStore } from './store'
 import type { PtyManager } from './pty-manager'
-import { authStatus, claudeLogout, claudePath, envFor, extractLoginUrl, fetchUsage, scratchCwd, stripAnsi } from './claude-cli'
+import { authStatus, claudeLogout, claudePath, envFor, extractLoginUrl, fetchUsage, markOnboarded, scratchCwd, stripAnsi } from './claude-cli'
 import { logResources } from './resource-log'
 
 /** utilization at/above which an account is treated as (nearly) spent:
@@ -176,7 +176,9 @@ export class AccountManager {
         loginStatus: st.loggedIn ? 'logged_in' : account.email ? 'expired' : 'logged_out',
         authCheckedAt: Date.now()
       })
-      if (st.loggedIn && withUsage) await this.refreshUsage(configDir)
+      if (!st.loggedIn) return
+      markOnboarded(configDir) // or the first session re-runs onboarding and asks to log in again
+      if (withUsage) await this.refreshUsage(configDir)
     } catch {
       this.update(configDir, { loginStatus: 'unknown', authCheckedAt: Date.now() })
     }
