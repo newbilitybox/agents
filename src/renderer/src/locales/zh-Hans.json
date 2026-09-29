@@ -25,7 +25,8 @@
     "titlePlaceholder": "选填，留空则用 Claude 自动摘要的标题",
     "account": "账号",
     "accountAuto": "自动选择（weekly 最快重置、且此模型仍有余量的账号）",
-    "limitRule": "达上限规则",
+    "autoSwitch": "达到用量上限时自动切换账号",
+    "autoSwitchHint": "换到还有余量的账号接着跑；不勾选时只发通知，由 Claude Code 自己等到额度重置后继续。",
     "launchArgs": "启动参数",
     "launchArgsHint": "以空格分隔，例如 --model opus。改动下次启动生效。",
     "systemPromptFiles": "系统提示附加文件",
@@ -71,11 +72,6 @@
       "dontAsk": "不询问",
       "bypassPermissions": "跳过权限"
     }
-  },
-  "limitRule": {
-    "auto-switch": "自动切换账号",
-    "manual": "手动处理（通知并等待）",
-    "wait-and-continue": "等额度刷新后自动继续"
   },
   "account": {
     "title": "账号管理",

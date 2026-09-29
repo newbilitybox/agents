@@ -16,10 +16,9 @@
 - 主畫面是可互動的終端櫥窗：點卡片啟用，下方浮出輸入框（貼圖、拖檔、Shift/⌘+Enter 換行）；可拖拽排序、彈出獨立視窗。
 - 新目錄的信任提示自動確認；預設不接 Remote Control、不同步到雲端（要上雲端在該 session 的設定 JSON 寫 `{"remoteControlAtStartup": true}` 或在 session 內打 `/rc`）。
 
-**限額**（達上限時依 session 的規則）
-- 自動切換帳號：換到有餘量的帳號並送 continue（換帳號＝把 transcript 搬到目標帳號目錄再 `--resume`）。
-- 手動處理：通知並等待。
-- 等額度刷新後自動繼續：按 reset 時間排程。
+**限額**
+- 勾選「達到用量上限時自動切換帳號」（預設）：換到有餘量的帳號並送 continue（換帳號＝把 transcript 搬到目標帳號目錄再 `--resume`）。
+- 不勾選：只發通知，由 Claude Code 自己等到額度重置後繼續。
 
 **其他**
 - 跨帳號 session 互通：所有帳號共用一份 session registry，`ListAgents`／`SendMessage` 不再侷限於同一帳號。

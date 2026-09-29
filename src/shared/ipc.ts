@@ -2,12 +2,12 @@
  * Typed IPC contract between main and renderer.
  * Every channel is declared here once; both sides import from this file.
  */
-import type { Account, LimitRule, ModelOption, Session } from './types'
+import type { Account, ModelOption, Session } from './types'
 
 /** editable-after-creation session config (README: "後期隨時可以改") */
 export interface SessionConfigPatch {
   title?: string
-  limitRule?: LimitRule
+  autoSwitch?: boolean
   launchArgs?: string
   /** null = CLI default; changes apply on the next (re)spawn — updateConfig
    *  restarts a non-running session right away to make them stick */
@@ -68,7 +68,7 @@ export interface NewSessionInput {
   /** empty → auto-pick a logged-in account with the most headroom */
   accountDir: string
   title: string
-  limitRule: LimitRule
+  autoSwitch: boolean
   /** raw CLI args string, split on whitespace */
   launchArgs: string
   /** null = CLI default */

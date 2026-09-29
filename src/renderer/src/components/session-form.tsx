@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { FilePlus2, FolderOpen, FolderPlus } from 'lucide-react'
-import type { Account, LimitRule, ModelOption, Session } from '@shared/types'
+import type { Account, ModelOption, Session } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,6 @@ import { hasUsage } from '@/lib/usage'
 import { UsageLines, useUsageLines } from '@/components/usage-lines'
 import { useApp } from '@/stores/app'
 
-const LIMIT_RULES: LimitRule[] = ['auto-switch', 'manual', 'wait-and-continue']
 /** built-in presets; models the CLI has actually reported are appended at
  *  render time (modelOptions), and "default" keeps whatever the CLI decides */
 const MODELS: ModelOption[] = [
@@ -47,7 +46,7 @@ export interface SessionFormValues {
   title: string
   /** '' = auto-pick (create only) */
   accountDir: string
-  limitRule: LimitRule
+  autoSwitch: boolean
   /** '' = CLI default */
   modelId: string
   effort: string
@@ -64,7 +63,7 @@ export const emptySessionForm: SessionFormValues = {
   cwd: '',
   title: '',
   accountDir: '',
-  limitRule: 'auto-switch',
+  autoSwitch: true,
   modelId: '',
   effort: '',
   mode: '',
@@ -80,7 +79,7 @@ export const sessionFormValues = (s: Session): SessionFormValues => ({
   cwd: s.cwd,
   title: s.title ?? '',
   accountDir: s.accountDir,
-  limitRule: s.limitRule,
+  autoSwitch: s.autoSwitch,
   modelId: s.modelId ?? '',
   effort: s.effort ?? '',
   mode: s.mode ?? '',
@@ -283,20 +282,17 @@ export function SessionForm({
         </label>
         <p className="text-muted-foreground text-xs">{t('session.stopOnFallbackHint')}</p>
       </div>
-      <div className="grid gap-2">
-        <Label>{t('session.limitRule')}</Label>
-        <Select value={values.limitRule} onValueChange={(v) => onChange({ limitRule: v as LimitRule })}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {LIMIT_RULES.map((r) => (
-              <SelectItem key={r} value={r}>
-                {t(`limitRule.${r}`)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="grid gap-1">
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="accent-primary"
+            checked={values.autoSwitch}
+            onChange={(e) => onChange({ autoSwitch: e.target.checked })}
+          />
+          {t('session.autoSwitch')}
+        </label>
+        <p className="text-muted-foreground text-xs">{t('session.autoSwitchHint')}</p>
       </div>
       <div className="grid gap-2">
         <Label htmlFor="f-prompt-files">{t('session.systemPromptFiles')}</Label>

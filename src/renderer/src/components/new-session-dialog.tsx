@@ -25,7 +25,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         cwd: values.cwd,
         title: values.title,
         accountDir: values.accountDir,
-        limitRule: values.limitRule,
+        autoSwitch: values.autoSwitch,
         launchArgs: values.launchArgs,
         modelId: values.modelId || null,
         effort: values.effort || null,

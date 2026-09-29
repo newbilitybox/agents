@@ -40,7 +40,7 @@ export function SessionSettingsDialog({ sessionId, onClose }: { sessionId: strin
     try {
       await window.api.updateSessionConfig(session.id, {
         title: values.title,
-        limitRule: values.limitRule,
+        autoSwitch: values.autoSwitch,
         launchArgs: values.launchArgs,
         modelId: values.modelId || null,
         effort: values.effort || null,

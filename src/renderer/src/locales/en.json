@@ -25,7 +25,8 @@
     "titlePlaceholder": "Optional — otherwise Claude's own summary title",
     "account": "Account",
     "accountAuto": "Auto-pick (soonest weekly reset, with headroom for this model)",
-    "limitRule": "On limit reached",
+    "autoSwitch": "Switch accounts when the usage limit is reached",
+    "autoSwitchHint": "Moves to an account with headroom and carries on. Unchecked, you only get a notification: Claude Code waits for the reset and continues by itself.",
     "launchArgs": "Launch args",
     "launchArgsHint": "Space-separated, e.g. --model opus. Applies on next start.",
     "systemPromptFiles": "System prompt files",
@@ -71,11 +72,6 @@
       "dontAsk": "Don't ask",
       "bypassPermissions": "Bypass permissions"
     }
-  },
-  "limitRule": {
-    "auto-switch": "Auto-switch account",
-    "manual": "Notify and wait",
-    "wait-and-continue": "Wait for reset, then continue"
   },
   "account": {
     "title": "Accounts",

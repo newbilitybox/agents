@@ -64,12 +64,6 @@ export interface Account {
   loginVerdict?: string | null
 }
 
-/** What to do when a session's account hits its usage limit. */
-export type LimitRule =
-  | 'auto-switch' // switch to another logged-in account with headroom and continue
-  | 'manual' // notify and wait for the user (also covers plain "do nothing")
-  | 'wait-and-continue' // wait for the usage window to reset, then send continue
-
 export type SessionState =
   | 'idle'
   | 'running'
@@ -92,7 +86,10 @@ export interface Session {
   cwd: string
   /** references Account.configDir */
   accountDir: string
-  limitRule: LimitRule
+  /** on a usage limit, move to another logged-in account with headroom and
+   *  continue there; off: only notify — the CLI waits for the reset and
+   *  continues by itself */
+  autoSwitch: boolean
   /** extra CLI args passed to `claude` */
   launchArgs: string[]
   state: SessionState

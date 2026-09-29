@@ -132,8 +132,6 @@ export class SessionManager extends EventEmitter {
   private verifyTimers = new Map<string, NodeJS.Timeout>()
   /** per-spawn fallback that force-opens the ready gate if the footer never matches */
   private readyFallbacks = new Map<string, NodeJS.Timeout>()
-  /** wait-and-continue timers, keyed by session id */
-  private resetTimers = new Map<string, NodeJS.Timeout>()
   /** true during shutdown so pty exits don't rewrite state to 'exited' — we keep
    *  each session's pre-quit state so the next launch knows which were active */
   private shuttingDown = false
@@ -203,8 +201,11 @@ export class SessionManager extends EventEmitter {
     this.restoredActiveIds = prev.filter((s) => s.state !== 'exited').map((s) => s.id)
     this.store.set(
       'sessions',
-      prev.map((s) => ({
+      prev.map(({ limitRule, ...s }: Session & { limitRule?: string }) => ({
         ...s,
+        // the old three-way limitRule (auto-switch | manual | wait-and-continue)
+        // became this switch: the CLI now waits out a limit by itself
+        autoSwitch: s.autoSwitch ?? (limitRule ?? 'auto-switch') === 'auto-switch',
         // fields added after a session was persisted arrive undefined — fill
         // them once here so every later read/compare can trust the shape
         systemPromptFiles: s.systemPromptFiles ?? [],
@@ -248,7 +249,7 @@ export class SessionManager extends EventEmitter {
       transcriptPath: null,
       cwd: input.cwd,
       accountDir,
-      limitRule: input.limitRule,
+      autoSwitch: input.autoSwitch,
       launchArgs: input.launchArgs.trim() ? input.launchArgs.trim().split(/\s+/) : [],
       state: 'idle',
       order: Math.max(0, ...this.list().map((s) => s.order + 1)),
@@ -290,7 +291,6 @@ export class SessionManager extends EventEmitter {
    * "exited — click to resume", keeping its record + transcript for later resume.
    */
   stop(id: string): void {
-    this.clearResetTimer(id)
     this.clearFallbackTimer(id)
     this.clearSends(id)
     this.pendingContinue.delete(id)
@@ -324,7 +324,6 @@ export class SessionManager extends EventEmitter {
   }
 
   remove(id: string): void {
-    this.clearResetTimer(id)
     this.clearFallbackTimer(id)
     this.escAt.delete(id)
     this.deferredStop.delete(id)
@@ -349,7 +348,7 @@ export class SessionManager extends EventEmitter {
     if (!session) return
     const p: Partial<Session> = {}
     if (patch.title !== undefined) p.title = patch.title.trim() || null
-    if (patch.limitRule) p.limitRule = patch.limitRule
+    if (patch.autoSwitch !== undefined) p.autoSwitch = patch.autoSwitch
     if (patch.launchArgs !== undefined) {
       pushRecentLaunchArgs(this.store, patch.launchArgs)
       p.launchArgs = patch.launchArgs.trim() ? patch.launchArgs.trim().split(/\s+/) : []
@@ -496,7 +495,6 @@ export class SessionManager extends EventEmitter {
 
   shutdown(): void {
     this.shuttingDown = true // pty exits below must not rewrite state (keep what was active)
-    for (const t of this.resetTimers.values()) clearTimeout(t)
     this.ptys.killAll()
     this.hooks.stop()
   }
@@ -567,7 +565,7 @@ export class SessionManager extends EventEmitter {
    *  switch first rather than burning the submit on a doomed account. */
   private async maybeSwitchBeforeSubmit(id: string): Promise<void> {
     const session = this.get(id)
-    if (!session || session.limitRule !== 'auto-switch' || session.state === 'running') return
+    if (!session || !session.autoSwitch || session.state === 'running') return
     const account = this.accounts.get(session.accountDir)
     const model = session.modelId ?? session.model
     if (!account || this.accounts.usedPct(account, modelFamily(model)) < HEADROOM_PCT) return
@@ -677,7 +675,9 @@ export class SessionManager extends EventEmitter {
     }
   }
 
-  /** React to a session hitting its usage limit per its configured rule. */
+  /** A session hit its usage limit: switch it to an account with headroom if
+   *  it opted in, else just tell the user — the CLI itself waits for the
+   *  reset and continues (quota_auto_resume). */
   private async handleRateLimit(id: string, hit: LimitHit): Promise<void> {
     const session = this.get(id)
     if (!session) return
@@ -685,52 +685,11 @@ export class SessionManager extends EventEmitter {
     // the banner is ground truth — keep this account out of the rotation until
     // that window resets (and probe its real numbers in the background)
     this.accounts.markRateLimited(session.accountDir, hit)
-
-    switch (session.limitRule) {
-      case 'manual':
-        this.emit('notify', { id, kind: 'rate-limited' })
-        break
-      case 'auto-switch': {
-        const target = this.accounts.pickAccount({ exclude: session.accountDir, model: session.modelId ?? session.model })
-        if (target) await this.switchAccount(id, target.configDir, { continueAfter: true })
-        else this.emit('notify', { id, kind: 'rate-limited' }) // nowhere to go
-        break
-      }
-      case 'wait-and-continue':
-        this.scheduleReset(id)
-        break
-    }
-  }
-
-  /** Wait until the account's window resets, then resume and continue. */
-  private scheduleReset(id: string): void {
-    const session = this.get(id)
-    if (!session) return
-    const resetsAt = this.accounts.get(session.accountDir)?.usage.resetsAt
-    // fall back to a 5-hour window if we don't know the exact reset time
-    const delay = Math.max(0, (resetsAt ?? Date.now() + 5 * 3600_000) - Date.now()) + 5_000
-    this.clearResetTimer(id)
-    this.resetTimers.set(
-      id,
-      setTimeout(() => {
-        this.clearResetTimer(id)
-        // a banner doesn't end the process — claude sits at its prompt, so a
-        // restart() would no-op (live-hit: wait-and-continue never continued)
-        if (this.ptys.isAlive(id)) this.send(id, 'continue')
-        else {
-          this.pendingContinue.add(id)
-          void this.restart(id)
-        }
-      }, delay)
-    )
-  }
-
-  private clearResetTimer(id: string): void {
-    const t = this.resetTimers.get(id)
-    if (t) {
-      clearTimeout(t)
-      this.resetTimers.delete(id)
-    }
+    const target = session.autoSwitch
+      ? this.accounts.pickAccount({ exclude: session.accountDir, model: session.modelId ?? session.model })
+      : null
+    if (target) await this.switchAccount(id, target.configDir, { continueAfter: true })
+    else this.emit('notify', { id, kind: 'rate-limited' })
   }
 
   private onHookEvent({ sessionId, event, payload }: HookEvent): void {
