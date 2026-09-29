@@ -12,6 +12,7 @@ import { SettingsDialog } from '@/components/settings-dialog'
 function App() {
   const { t } = useTranslation()
   const sessions = useApp((s) => s.sessions)
+  const focusedId = useApp((s) => s.focusedId)
   const setFocused = useApp((s) => s.setFocused)
   const groupFilter = useApp((s) => s.groupFilter)
   const setGroupFilter = useApp((s) => s.setGroupFilter)
@@ -47,9 +48,11 @@ function App() {
 
   // folder filter (sidebar) first, then the state chips over what's left. A state
   // filter stays put when its count drops to zero (states change under the user
-  // constantly) — the empty grid says so instead
+  // constantly) — the empty grid says so instead. The active card stays through
+  // any state filter until focus moves on: opening a done card turns it idle, and
+  // it must not vanish the moment it is clicked
   const inFolder = groupFilter ? sessions.filter((s) => s.cwd === groupFilter) : sessions
-  const visible = stateFilter ? inFolder.filter((s) => s.state === stateFilter) : inFolder
+  const visible = stateFilter ? inFolder.filter((s) => s.state === stateFilter || s.id === focusedId) : inFolder
 
   return (
     <div className="flex h-screen flex-col">

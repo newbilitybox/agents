@@ -127,6 +127,8 @@ export interface IpcApi {
   restartSession(id: string): Promise<void>
   /** stop a running session without removing it (becomes an exited, resumable card) */
   stopSession(id: string): Promise<void>
+  /** the session's view is in front of the user: its finished turn (done) counts as seen → idle */
+  markSessionSeen(id: string): Promise<void>
   removeSession(id: string): Promise<void>
   /** move the session to another account (only when idle): move transcript + resume */
   switchAccount(id: string, targetAccountDir: string): Promise<void>
@@ -181,6 +183,7 @@ export const INVOKE_CHANNELS = [
   'createSession',
   'restartSession',
   'stopSession',
+  'markSessionSeen',
   'removeSession',
   'switchAccount',
   'updateSessionConfig',

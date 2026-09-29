@@ -6,6 +6,7 @@ import { EditableTitle } from '@/components/editable-title'
 import { STATE_DOT } from '@/lib/session-state'
 import { hasUsage } from '@/lib/usage'
 import { UsageLines } from '@/components/usage-lines'
+import { useMarkSeen } from '@/components/use-mark-seen'
 import { cn } from '@/lib/utils'
 
 /** Whole-window view of a single session, rendered in a pop-out window. */
@@ -15,6 +16,7 @@ export function StandaloneSession({ sessionId }: { sessionId: string }) {
   const session = useApp((s) => s.sessions.find((x) => x.id === sessionId))
   const dragOver = useApp((s) => s.dragOverId === sessionId)
   const account = accounts.find((a) => a.configDir === session?.accountDir)
+  useMarkSeen(sessionId, session?.state === 'done')
 
   if (!session) {
     return (

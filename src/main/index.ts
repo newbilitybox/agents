@@ -299,6 +299,7 @@ function bootstrap(): void {
   handle('createSession', (input: NewSessionInput) => sessions.create(input))
   handle('restartSession', (id: string) => sessions.restart(id))
   handle('stopSession', (id: string) => sessions.stop(id))
+  handle('markSessionSeen', (id: string) => sessions.markSeen(id))
   handle('removeSession', (id: string) => {
     windows.closePopout(id)
     sessions.remove(id)

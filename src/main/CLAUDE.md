@@ -13,6 +13,7 @@
 - CLI 的文案、旗標、JSON 形狀只寫在 `claude-cli.ts`，其他模組呼叫它的函式；CLI 改版先改這裡
 - 對 claude 的提交（使用者訊息、continue、`/effort ultracode`）一律走 `SessionManager.send()` 佇列，不直接 `ptys.submit()`：要等 TUI 就緒、要等 ack 重試
 - 使用者訊息的 `submit()` 打進 claude 才 resolve、在佇列裡被丟掉就 reject，chat input 據此決定清空或保留：丟佇列只經 `abandonSends()`／`clearSends()` 並帶原因，直接刪 `sendQueue` 會讓輸入框一直卡在送出中
+- done 只表示「做完、還沒看過」：畫面一到使用者眼前，renderer 的 `useMarkSeen()` 就經 `markSessionSeen` 轉 idle（使用者拍板），done 可能一閃即逝；判斷 claude 收到送出與否看 `UserPromptSubmit`（`promptAcked`），不看狀態
 - model／effort／permission mode 都是 per-process：每次 respawn 用啟動旗標還原（`sessionArgs()`），不送 `/model`（有對話歷史時會跳確認框）
 - 不寫帳號目錄的 `settings.json`（claude-switch 的 profile 可能 symlink 共用），注入一律走 per-session 的 `--settings` 檔；帳號的 `.claude.json` 只經 `patchClaudeJson()` 補兩樣：`markOnboarded()` 的 onboarding 旗標、`trustRepo()` 為 worktree 補的 repo 信任
 - 限額 park（`usage.limitedUntil`）是權威值、只由到期清除：用量寫入都要帶回 `livePark()`，提前清掉會讓 auto-switch 無限換帳號

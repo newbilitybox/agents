@@ -13,6 +13,7 @@ import { EditableTitle } from '@/components/editable-title'
 import { SessionSettingsDialog } from '@/components/session-settings-dialog'
 import { STATE_DOT } from '@/lib/session-state'
 import { UsageLines } from '@/components/usage-lines'
+import { useMarkSeen } from '@/components/use-mark-seen'
 import { cn } from '@/lib/utils'
 
 export function SessionCard({ session }: { session: SessionView }) {
@@ -27,6 +28,7 @@ export function SessionCard({ session }: { session: SessionView }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const active = focusedId === session.id && session.alive && !session.poppedOut
+  useMarkSeen(session.id, active && session.state === 'done')
   // the chat input also serves an exited card: a submit resumes the session and delivers
   const inputOpen = focusedId === session.id && !session.poppedOut
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: session.id })

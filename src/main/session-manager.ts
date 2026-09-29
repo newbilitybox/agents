@@ -136,6 +136,10 @@ export class SessionManager extends EventEmitter {
   private sendQueue = new Map<string, QueuedSend[]>()
   /** sessions with a submission currently awaiting its ack */
   private sending = new Set<string>()
+  /** claude took a prompt (UserPromptSubmit) since our last submission — the
+   *  ack itself. The state can't stand in for it: a turn that ends before the
+   *  first check may already be seen, done → idle, by then */
+  private promptAcked = new Set<string>()
   /** per-session ack-verify timers, cancelled on kill/respawn */
   private verifyTimers = new Map<string, NodeJS.Timeout>()
   /** per-spawn fallback that force-opens the ready gate if the footer never matches */
@@ -355,6 +359,7 @@ export class SessionManager extends EventEmitter {
     this.resuming.delete(id)
     this.pendingContinue.delete(id)
     this.pendingUltracode.delete(id)
+    this.promptAcked.delete(id)
     this.clearSends(id, 'the session was removed')
     this.ptys.kill(id)
     this.ptys.forget(id)
@@ -458,10 +463,17 @@ export class SessionManager extends EventEmitter {
     await this.spawn(this.get(id)!, { resume: canResume })
   }
 
+  /** The session's view is in front of the user (the grid's active card or its
+   *  pop-out, in the focused window): a finished turn counts as seen. done only —
+   *  a needs-attention prompt still waits for an answer. */
+  markSeen(id: string): void {
+    if (this.get(id)?.state === 'done') this.update(id, { state: 'idle' })
+  }
+
   write(id: string, data: string): void {
     // clicking/scrolling a mouse-tracking terminal (claude's pinned mode) writes
     // mouse/focus reports — those aren't the user re-engaging, so they must not
-    // clear a done/needs-attention badge just because the user glanced at the card
+    // answer a needs-attention prompt or drop queued submissions
     if (isKeyboardInput(data)) {
       const s = this.get(id)
       if (data === '\x1b') this.escAt.set(id, Date.now())
@@ -754,6 +766,7 @@ export class SessionManager extends EventEmitter {
       }
       case 'UserPromptSubmit':
         this.deferredStop.delete(sessionId)
+        this.promptAcked.add(sessionId)
         this.setState(sessionId, 'running')
         break
       case 'Stop': {
@@ -940,6 +953,7 @@ export class SessionManager extends EventEmitter {
     const item = this.sendQueue.get(id)?.shift()
     if (!item) return
     this.sending.add(id)
+    this.promptAcked.delete(id)
     this.ptys.submit(id, item.text)
     item.settle?.() // typed in: from here it sits in claude's input box even if it never acks
     // local slash commands never ack via UserPromptSubmit — don't re-press Enter
@@ -948,7 +962,7 @@ export class SessionManager extends EventEmitter {
     let retries = 0
     const timer = setInterval(() => {
       const state = this.get(id)?.state
-      const acked = state === 'running' || state === 'done' || state === 'needs-attention'
+      const acked = this.promptAcked.has(id) || state === 'running' || state === 'done' || state === 'needs-attention'
       if (acked || !this.ptys.isAlive(id) || retries >= maxRetries) {
         clearInterval(timer)
         this.verifyTimers.delete(id)

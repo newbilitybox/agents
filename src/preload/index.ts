@@ -116,6 +116,7 @@ const api: IpcApi = {
   createSession: (input) => invoke('createSession', input),
   restartSession: (id) => invoke('restartSession', id),
   stopSession: (id) => invoke('stopSession', id),
+  markSessionSeen: (id) => invoke('markSessionSeen', id),
   removeSession: (id) => invoke('removeSession', id),
   switchAccount: (id, dir) => invoke('switchAccount', id, dir),
   updateSessionConfig: (id, patch) => invoke('updateSessionConfig', id, patch),
