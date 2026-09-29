@@ -1,71 +1,50 @@
 # Agent S
 
-用 Electron 打造的桌面工具，在同一台 Mac 上管理**多個 Claude Code 訂閱帳號**與**多個 session**，以櫥窗方式排列所有終端、集中處理帳號用量、限額切換與通知。
+在同一台 Mac 上管理**多個 Claude Code 訂閱帳號**與**多個 session** 的 Electron 桌面工具：所有 session 的終端排成櫥窗，集中看各帳號用量，撞到限額時可以自動換帳號接著跑。
 
-> 目前只針對 Claude Code CLI。
+> 只支援 macOS 上的 Claude Code CLI。
 
 ## 功能
 
 **帳號**
-- 每個帳號 = 一個 `CLAUDE_CONFIG_DIR`（唯一鍵）。可掃描本機 `~/.claude*` 一鍵匯入，或手動新增（名稱 → 路徑，留空預設 `~/.claude-<名稱>` → 備註）。
-- 啟動時刷新全部帳號的登入狀態（`claude auth status`）與用量；備註可隨時編輯。
-- 用量顯示 5 小時 / 週窗口百分比與更新時間。
+- 一個帳號就是一個 `CLAUDE_CONFIG_DIR`。可掃描本機 `~/.claude*` 一鍵匯入，或手動新增（名稱 → 路徑，留空為 `~/.claude-<名稱>`）後在 app 內登入：瀏覽器登入自動回填、複製連結貼代碼、或直接用內嵌的 CLI 終端。
+- 顯示登入狀態、方案，以及 5 小時／本週／各模型窗口的用量與 reset 時間；撞到限額的帳號標 ⛔ 直到該窗口 reset。
 
 **Session**
-- 建立時只有工作目錄必填；帳號可留空自動選（weekly 最快重置、且此模型仍有餘量的帳號）；限額規則、啟動參數、標題皆選填（標題未填則顯示 Claude 自動摘要的標題）、事後可改。
-- 啟動參數下拉最近用過的值（去重、最多 10 條）。
-- 新目錄的信任提示（Security guide）自動確認。
-- Session 預設不接 Remote Control、不同步到雲端（注入 `remoteControlAtStartup: false`）；要讓某個 session 上雲端可在它的 settings JSON 設 `{"remoteControlAtStartup": true}` 或在 session 內打 `/rc`。
-- 主界面是可交互的終端櫥窗：點卡片啟用，啟用的卡片底部浮出 chat input（貼圖、拖檔、Shift/⌘+Enter 換行），點終端可直接鍵盤交互。可拖拽排序、獨立視窗開啟。
+- 建立時只有工作目錄必填；帳號留空會自動挑（週額度最快重置、且這個模型仍有餘量的帳號）。
+- 模型、effort、權限模式、系統提示附加檔、附加目錄、設定覆寫、啟動參數都能事後修改，每次重啟自動還原。
+- 主畫面是可互動的終端櫥窗：點卡片啟用，下方浮出輸入框（貼圖、拖檔、Shift/⌘+Enter 換行）；可拖拽排序、彈出獨立視窗。
+- 新目錄的信任提示自動確認；預設不接 Remote Control、不同步到雲端（要上雲端在該 session 的設定 JSON 寫 `{"remoteControlAtStartup": true}` 或在 session 內打 `/rc`）。
 
-**限額切換**（達上限時，依 session 規則）
-- `自動切換帳號`：切到有餘量的帳號並發 continue（換帳號 = 移動 transcript 檔到目標帳號目錄 + `--resume`）。
-- `手動處理`：通知並等待。
-- `等額度刷新後自動繼續`：按 reset 時間排程。
+**限額**（達上限時依 session 的規則）
+- 自動切換帳號：換到有餘量的帳號並送 continue（換帳號＝把 transcript 搬到目標帳號目錄再 `--resume`）。
+- 手動處理：通知並等待。
+- 等額度刷新後自動繼續：按 reset 時間排程。
 
 **其他**
-- 選單列常駐圖標，關掉所有視窗後點它可重開。
-- 退出時可選「背景執行」（保留執行中的 session，下次打開恢復）。
-- 系統通知（需處理 / 完成 / 卡限額）。
-- 跨帳號 session 互通：所有帳號共用一份 session registry，`ListAgents` / `SendMessage` 不再侷限於同一帳號。
-- 簡繁中文 + 英文、深 / 淺色主題。
+- 跨帳號 session 互通：所有帳號共用一份 session registry，`ListAgents`／`SendMessage` 不再侷限於同一帳號。
+- 選單列常駐；退出時可選「背景執行」保留執行中的 session；系統通知（需處理／完成／限額／模型回退）；in-app 更新；繁簡中文＋英文、深淺色主題。
 
 ## 開發
 
-需求：Node 22、pnpm、已安裝 `claude` CLI。
+需求：macOS、Node 22、pnpm、已安裝 `claude` CLI。
 
 ```bash
-pnpm install        # 會自動 electron-rebuild node-pty（原生模組）
-pnpm dev            # 啟動（dev 資料目錄與正式版隔離：agents-dev）
+pnpm install     # postinstall 會把 node-pty 重建成 Electron 的 ABI
+pnpm dev         # 開發模式（資料目錄 ~/.agent-s-dev，與正式版的 ~/.agent-s 分開）
 pnpm typecheck
-pnpm package        # 打包成 mac dmg/zip（release/）
 ```
 
-## 架構
+## 打包與發佈
 
-前後端全 TypeScript，共用型別放 `src/shared/`。
-
-```
-src/shared          IPC 契約(ipc.ts) + 資料模型(types.ts)，main/renderer 共用
-src/main            Electron 主行程
-  index.ts          bootstrap、IPC handlers、tray、退出流程、背景用量探測
-  claude-cli.ts     所有 claude CLI 交互(登入 env、auth、--settings 注入、
-                    transcript 搬移、限額/信任提示偵測、usage API)——版本敏感細節集中處
-  pty-manager.ts    每 session 一個 node-pty + 輸出環形緩衝
-  session-manager.ts session 生命週期、狀態機、限額規則引擎、換帳號
-  account-manager.ts 帳號 CRUD、auth、用量
-  hook-server.ts    localhost HTTP，接收 claude 注入的 hooks / statusline
-  usage-probe.ts    閒置帳號用量探測(短暫跑一次 claude)
-  window-manager.ts 主視窗 + 獨立視窗 + tray
-  store.ts          electron-store 持久化
-src/preload         contextBridge 暴露 typed IPC
-src/renderer        React 19 + Tailwind v4 + shadcn/ui + zustand
+```bash
+pnpm release --dry-run           # 只建置、列出會上傳什麼
+pnpm release --notes "修了 X"     # 熱更：只換 app.asar，使用者按「更新並重啟」即可
+pnpm release --full --notes "…"  # 換過 Electron／node-pty 時必須用，附 DMG/zip 安裝包
 ```
 
-**接手這個專案前，先讀 [`ARCHITECTURE.md`](./ARCHITECTURE.md)** —— 裡面有關鍵機制與踩過的坑（node-pty、Keychain、進程管理、Playwright 驗證等），能省下大量時間。
+目前的發佈版未經 Developer ID 簽名與公證，在別台 Mac 第一次開要右鍵 →「打開」。細節見 `.claude/skills/release/SKILL.md`。
 
 ## 已知限制
-
-- **閒置帳號用量**：非官方 usage API 需要帳號 token。若帳號目錄有 `.credentials.json` 則直接讀；macOS Keychain 儲存的帳號改用「啟動時短暫跑一次 claude 觸發一次 API 回應」來取得（消耗極少額度）。有活躍 session 的帳號則由 statusline 即時提供，不需探測。
-- usage API 為非官方端點，可能變動或觸發 429。
-- 打包預設不簽名（`identity: null`）；要對外分發需自行加簽名 / 公證。
+- 閒置帳號的用量靠定期（每 15 分鐘，以及打開設定時）在本機跑一次 claude 讀 `/usage`；執行中的 session 由 statusline 即時回報。各模型（如 Fable）的窗口只有前者有。
+- 限額橫幅、信任提示等偵測依賴 CLI 的畫面文字，CLI 改版可能需要跟著調整。

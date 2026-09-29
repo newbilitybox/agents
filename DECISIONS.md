@@ -1,0 +1,19 @@
+# Agent S 的決策
+
+2026-09-29 以前的條目整理自舊的 `ARCHITECTURE.md`／`PACKAGING.md` 與 git log，除了有明確使用者要求的，狀態都先標「暫定（待使用者確認）」。
+
+- 2026-07-16 暫定（待使用者確認）：一個帳號＝一個 `CLAUDE_CONFIG_DIR`（沿用 claude-switch 的 profile 慣例），default 帳號（`~/.claude`）不設這個變數。原因：使用者長期用 claude-switch 並用多個 profile，證明隔離可行，不必碰 Keychain；不選：搬移 Keychain 憑證來切換帳號；代價：default 帳號的 `.claude.json` 在 `~` 而非目錄內，凡是讀寫帳號設定的地方都要特判。
+- 2026-07-16 暫定（待使用者確認）：閒置帳號的用量由本地跑一次 claude、打 `/usage` 刮面板取得；執行中的 session 由 statusline 即時回報。原因：非官方的 `api/oauth/usage` 429 嚴重，2026-07-16 還整批回傳 0%（CLI 自己的面板正常），而且要碰 Keychain token；不選：oauth usage API；代價：每次探測約 15 秒，要推進信任框與主題選擇器，面板是差異重繪、解析脆弱。
+- 2026-08-03 暫定（待使用者確認）：強制 claude 的釘底全螢幕 TUI（`CLAUDE_CODE_NO_FLICKER=1`），XTVERSION 由 main 的 pty-manager 代答 `xterm.js(5.5.0)`，終端用 xterm 5.5＋addon-webgl 0.19。原因：輸入框釘底、內容捲動，和在 iTerm2 裡一致；claude 靠 XTVERSION 套用 xterm.js 的滾輪參數；不選：升 xterm 6（webgl 穩定版不支援，只剩 DOM renderer，快速重繪會卡）、冒充 `TERM_PROGRAM=vscode`（claude 會自動裝 VS Code extension 並報錯）；代價：滑鼠追蹤開著，點或滾終端會送滑鼠回報，要在 `SessionManager.write()` 濾掉，免得被當成打字。
+- 2026-08-13 暫定（待使用者確認）：in-app 更新走 GitHub Releases：熱更只換 `app.asar`；Electron 或 node-pty 版本變了（`runtime` 指紋不符）才引導下載完整安裝包。原因：大部分改動只動 JS，熱更免重裝；原生部分換了 ABI 會直接壞掉；不選：electron-updater（macOS 版要求 app 已簽名）；代價：熱更會就地改寫 `.app` 裡的 asar，已簽名的 bundle 會因此破封。
+- 2026-08-13 暫定（待使用者確認）：發佈版暫以未簽名、不公證出貨（`scripts/release.mjs` 的 `SIGN_OVERRIDES`）。原因：Developer ID 憑證 2026-07-21 撤銷，使用者目前沒有 Apple Developer 帳號；代價：在別台 Mac 第一次開要右鍵「打開」。
+- 2026-08-26 暫定（待使用者確認）：限額 park 是權威值：撞限額橫幅把帳號標記到該窗口 reset，只由到期清除，探測與 statusline 都不能提前解除。原因：per-model 或 Opus 橫幅會在面板仍 <100% 時出現，statusline 也會在撞限額那一輪照常回報；先前一撞就被探測洗掉，auto-switch 立刻切回爆掉的帳號，無限循環；不選：用最新用量數字即時解除；代價：park 的到期時間必須準，否則帳號會被多擋一段時間。
+- 2026-08-26 暫定（待使用者確認）：跨帳號 session 互通：把每個帳號的 `<configDir>/sessions` symlink 到共用的 `~/.agent-s-sessions`，並注入 `crossSessionInbound: "accept"`。原因：claude 的 peer messaging 只靠 registry 目錄隔開帳號，協議本身沒有帳號檢查，打通後 `ListAgents`／`SendMessage` 就能跨帳號；共用路徑不放 userData，因為 symlink 寫在使用者真實的帳號目錄，dev 與正式版必須指向同一處；不選：維持各帳號互相看不到；代價：A 帳號的 session 能往 B 帳號的 session 注入 prompt（permission 決策是 per-session）；不過同一個 UNIX user 本來就讀得到彼此的 key，這條線原本就不是安全邊界。
+- 2026-09-03 暫定（待使用者確認）：新 session 帳號留空時自動挑：在已登入、且綁定這個模型 family 的窗口都未滿的帳號中，weekly reset 最早者優先，同 reset 再比用量；≥95% 的只在沒得挑時才用。原因：先花掉快要退還的額度；別的 family 的窗口不算（Opus 爆了不該擋 Fable session）；不選：挑用量最低者；代價：依賴用量資料新鮮，資料舊時可能挑到其實已爆的帳號，靠限額 park 兜底。
+- 2026-09-03 暫定（待使用者確認）：帳號登入用一個 `claude auth login` pty 同時提供三條路：瀏覽器 callback、複製連結貼代碼、內嵌終端；PATH 前綴一個 `open` shim 只記下 URL，不自動開瀏覽器。原因：不論 `open` 成敗 claude 都會印手動連結，localhost callback 也同時在聽，一個行程就能服務三條路，讓使用者自己選在哪登入；不選：讓 CLI 自動開瀏覽器；代價：依賴 claude 用 PATH 上的 `open` 開瀏覽器，CLI 換實作就要跟著改。
+- 2026-09-03 暫定（待使用者確認）：每次啟動 app 先跑 `claude update`；用量探測與恢復 session 等它完成才 spawn。原因：新起的 claude 都是新版，已在跑的行程不受影響；不選：交給 CLI 自己的背景更新；代價：啟動時多等一下（沒有更新時約 1.5 秒）。
+- 2026-09-03 使用者拍板：done／needs-attention／限額／模型回退一律發系統通知，視窗聚焦中也發。原因：使用者要被告知，不想自己盯著畫面；不選：視窗聚焦時略過；代價：在盯著的時候也會收到通知。
+- 2026-09-03 暫定（待使用者確認）：session 預設不接 Remote Control、不同步到雲端；每次 `--resume` 前在 transcript 末尾追加 `/rc` 斷線時的那筆記錄。原因：CLI 2.1.258 起每個互動 REPL 都自動接 Remote Control，把 transcript 鏡像到 Anthropic 伺服器；`remoteControlAtStartup: false` 只管新 session，resume 會照 transcript 接回舊的雲端 session；不選：managed setting `disableRemoteControl`（會連 `/rc` 都拿掉，使用者無法個別打開）；代價：已經同步上去的舊對話仍留在 claude.ai，要在網頁端自行刪除。
+- 2026-09-03 使用者拍板：session 標題只用使用者自設的，或 CLI 的 `session_name`（`/rename` 的名字或它的 AI 摘要），不拿 prompt 內容當標題。原因：使用者明確不要；不選：取第一則 prompt 當標題；代價：新 session 在 CLI 產生摘要前（第一則 prompt 後幾秒）只顯示目錄名。
+- 2026-09-04 暫定（待使用者確認）：每個 session 持久化記住見過的限額橫幅，只有 running 中、新 chunk 裡出現的不同橫幅才算新撞限額。原因：CLI 會把橫幅寫進 transcript，換帳號 `--resume` 會重播它；把重播當成新撞限額，曾把所有健康帳號逐一 park 光；不選：只在行程內去重；代價：同一則橫幅的第二次真撞限額會被當成重播，只能靠 park 仍有效時把 session 標回 rate-limited。
+- 2026-09-28 暫定（待使用者確認）：倉庫從 `aria0509/agents` 搬到 `newbilitybox/agents`，更新來源改指新倉庫；舊倉庫的 v0.2.26（橋接熱更，asar 裡的更新來源已指向新倉庫）與 v0.2.9（其 manifest 的 `full.url`）兩個 release 不可刪除。原因：尚未升級的舊安裝靠它們取得更新；不選：直接棄用舊倉庫；代價：舊倉庫得一直留著這兩個 release。

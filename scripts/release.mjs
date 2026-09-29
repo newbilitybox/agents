@@ -20,7 +20,7 @@
  *
  * Signing: ad-hoc (identity=null) while the Developer ID cert is revoked
  * (2026-07-21). When a new cert lands, drop SIGN_OVERRIDES below so the yml's
- * signed + notarized flow applies (source .env first, see PACKAGING.md).
+ * signed + notarized flow applies (source .env first, see .claude/skills/release).
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'

@@ -1,14 +1,31 @@
-# CLAUDE.md
+# Agent S
 
-本檔案為 Claude Code（claude.ai/code）在此倉庫中工作時提供指引。
+用途、怎麼跑、怎麼測見 `README.md`；設計上的取捨記在 `DECISIONS.md`，改這些設計前先讀。
 
-## 接手必讀
-動手前先讀 **`ARCHITECTURE.md`**：架構、關鍵機制與踩過的坑（node-pty ABI、殺進程 pattern、loginShellEnv 洩漏、TUI 文字偵測、dev/prod 資料目錄等）。專案概覽見 `README.md`。
+## 佈局
+Electron app：每個 session 在 main 行程用 node-pty 跑一個 `claude` CLI，以 `CLAUDE_CONFIG_DIR` 隔離帳號；`--settings` 注入的 hooks／statusline 用 curl 把狀態與用量回報給 app 內建的 localhost HTTP server。
+- `src/shared/` — IPC 契約（`ipc.ts`）與資料模型（`types.ts`），main／preload／renderer 共用
+- `src/main/` — Electron 主行程，所有 claude CLI 交互都在這（見 `src/main/CLAUDE.md`）
+- `src/preload/` — contextBridge 暴露 typed IPC；拖放／貼上的檔案在這裡解析成路徑
+- `src/renderer/` — React 19 + Tailwind v4 + shadcn/ui + zustand（見 `src/renderer/CLAUDE.md`）
+- `scripts/release.mjs` — 建置並發佈 GitHub release（熱更／完整），`.github/workflows/release.yml` 是它的 CI 入口
+- `build/` — 簽名 entitlements；`assets/` — 圖示
 
-## 溝通與語言
-- 與我**溝通一律使用繁體中文**。
-- 程式碼的**註解與編碼（命名、識別字）通常使用英文**；編輯既有檔案時配合周圍既有的語言。
+## 慣例
+- 與我溝通用繁體中文；程式碼註解與命名用英文，編輯既有檔案時配合周圍的語言
+- main 行程是唯一事實來源：狀態存 electron-store，變動經 `notify()` 廣播 `EVENT_STATE`，renderer 用 zustand 鏡像，不自己推算
+- 改 IPC 要同步四處：`ipc.ts` 的型別與 `INVOKE_CHANNELS`、main `index.ts` 的 `handle()`、`preload/index.ts` 的 `api`、renderer 呼叫端
 
-## 編碼風格 非常重要
-- **做減法！重視代碼可讀性！**每次改動都要重新審視業務邏輯，為實現這個業務有沒有更簡單的方法，當前實現代碼是否臃腫，能不能簡化。
-- **注重性能** 所有實現需審視有沒有性能問題，有沒有更優解
+## 坑
+- claude 一啟動就退、零輸出 → 先懷疑 node-pty 被重建成 Node ABI：`pnpm rebuild`（postinstall 會自動跑 electron-rebuild）
+- `pnpm install` 報 `ERR_PNPM_BROKEN_PNPM_RELEASE`（package.json 釘的 pnpm 11.13.0 是壞版本）→ `npm_config_manage_package_manager_versions=false pnpm install`
+- `node_modules/electron/dist` 不存在（electron 二進位沒下載）→ `node node_modules/electron/install.js`
+- `pnpm dev` 只熱更 renderer；改了 `src/main` 或 `src/preload` 要整個重啟，否則新舊版本混跑，行為像「沒生效」
+- 資料目錄：正式版 `~/.agent-s`、dev `~/.agent-s-dev`，`AGENTS_USER_DATA_DIR` 可覆寫（也隔開 single-instance lock）；對話 transcript 不在這，在各帳號的 `<configDir>/projects/`
+- 清理測試行程絕不能用 `pkill -f session-settings/`：正式版 app 的 claude 命令列也含這串，會殺掉使用者的 session；只匹配自己的測試資料目錄
+
+## 流程
+- 型別檢查：`pnpm typecheck`
+- 把 app 跑起來驗證改動：skill `verify-app`
+- 打包、簽名、發佈：skill `release`
+- CLI 改版後查它的新行為（文案、旗標、面板、hook payload）：skill `cli-behavior`

@@ -150,4 +150,4 @@ vite.config.ts.timestamp-*
 spikes/out/
 
 # electron-builder output
-release/
+/release/

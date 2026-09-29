@@ -25,7 +25,7 @@ mac:
     - zip
   # Pin to the Developer ID Application cert (substring match). Explicit so it
   # never silently falls back to the "Apple Development" cert, which can't be
-  # notarized. Create the cert first (see PACKAGING.md).
+  # notarized. Create the cert first (see .claude/skills/release).
   identity: Developer ID Application
   # Hardened runtime + entitlements are required for notarization.
   hardenedRuntime: true
