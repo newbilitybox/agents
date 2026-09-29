@@ -49,7 +49,8 @@ export interface Account {
   note: string
   /** from `claude auth status` once known */
   email: string | null
-  /** e.g. "max" | "pro", from `claude auth status` */
+  /** the plan: "pro" | "max 5x" | "max 20x" … (`claude auth status`, plus the
+   *  Max tier from the account's .claude.json) */
   subscriptionType: string | null
   loginStatus: LoginStatus
   /** epoch ms of the last auth status check */

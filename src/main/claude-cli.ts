@@ -194,7 +194,7 @@ export async function authStatus(configDir: string, retry = 1): Promise<AuthStat
     return {
       loggedIn: json.loggedIn === true,
       email: json.email ?? null,
-      subscriptionType: json.subscriptionType ?? null
+      subscriptionType: planLabel(configDir, json.subscriptionType ?? null)
     }
   } catch (e) {
     if (retry > 0) return authStatus(configDir, retry - 1)
@@ -205,6 +205,22 @@ export async function authStatus(configDir: string, retry = 1): Promise<AuthStat
 /** The account's global config file (see envFor for the default profile). */
 const claudeJsonPath = (configDir: string): string =>
   isDefaultProfile(configDir) ? join(homedir(), '.claude.json') : join(configDir, '.claude.json')
+
+/** "max 5x" / "max 20x" for a Max plan: `auth status` only says "max"; the tier
+ *  is in the account's .claude.json as oauthAccount.userRateLimitTier or
+ *  organizationRateLimitTier ("default_claude_max_20x", verified 2.1.284). */
+export function planLabel(configDir: string, subscriptionType: string | null): string | null {
+  if (subscriptionType !== 'max') return subscriptionType
+  try {
+    const { oauthAccount: a } = JSON.parse(readFileSync(claudeJsonPath(configDir), 'utf8')) as {
+      oauthAccount?: { userRateLimitTier?: string | null; organizationRateLimitTier?: string | null }
+    }
+    const tier = /_max_(\d+x)$/.exec(a?.userRateLimitTier ?? a?.organizationRateLimitTier ?? '')?.[1]
+    return tier ? `max ${tier}` : subscriptionType
+  } catch {
+    return subscriptionType // no config to read: the plain plan still says enough
+  }
+}
 
 /**
  * Mark first-run onboarding as done for a logged-in account. `claude auth

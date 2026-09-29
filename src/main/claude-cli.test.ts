@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { lstatSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectRateLimit, markOnboarded, parseUsageReport, sessionArgs } from './claude-cli.ts'
+import { detectRateLimit, markOnboarded, parseUsageReport, planLabel, sessionArgs } from './claude-cli.ts'
 
 const at = (y: number, mon: number, d: number, h: number, min = 0): number => new Date(y, mon - 1, d, h, min).getTime()
 const NOW = new Date(2026, 8, 29, 9, 33) // Sep 29 2026, 09:33 local
@@ -119,4 +119,17 @@ test('neither the fast-mode cooldown nor the CLI\'s own auto-continue notice is 
 test('a worktree session starts with --worktree; a resume leaves the flag out', () => {
   assert.deepEqual(sessionArgs({ settingsFile: 's.json', launchArgs: '', worktree: 'agents-1a2b3c4d' }), ['--settings', 's.json', '--worktree', 'agents-1a2b3c4d'])
   assert.deepEqual(sessionArgs({ settingsFile: 's.json', launchArgs: '', resumeSessionId: 'sid', worktree: null }), ['--settings', 's.json', '--resume', 'sid'])
+})
+
+const profileWith = (oauthAccount: object): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'agents-test-'))
+  writeFileSync(join(dir, '.claude.json'), JSON.stringify({ oauthAccount }))
+  return dir
+}
+
+test('planLabel tells Max 5x from 20x by the rate-limit tier in .claude.json', () => {
+  assert.equal(planLabel(profileWith({ organizationRateLimitTier: 'default_claude_max_20x', userRateLimitTier: null }), 'max'), 'max 20x')
+  assert.equal(planLabel(profileWith({ userRateLimitTier: 'default_claude_max_5x', organizationRateLimitTier: 'x' }), 'max'), 'max 5x')
+  assert.equal(planLabel(profileWith({ organizationRateLimitTier: 'default_claude_ai' }), 'pro'), 'pro')
+  assert.equal(planLabel(mkdtempSync(join(tmpdir(), 'agents-test-')), 'max'), 'max') // no config to read
 })
