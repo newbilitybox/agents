@@ -44,6 +44,7 @@
     "inputPlaceholder": "给 Claude 发消息…",
     "dropHint": "放开以加入文件路径",
     "send": "发送",
+    "sendFailed": "没有发送——消息还在这里，按 Enter 重发",
     "settings": "Session 设置",
     "switchWhenIdle": "（仅在非执行中可切换）",
     "popOut": "独立窗口打开",

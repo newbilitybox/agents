@@ -89,6 +89,13 @@ function isKeyboardInput(data: string): boolean {
   return data.replace(MOUSE_OR_FOCUS, '').replace(TERMINAL_REPLIES, '').length > 0
 }
 
+/** A submission waiting for claude's input box. `settle` (only the user's chat
+ *  messages have one) learns whether it was typed in or dropped on the way. */
+interface QueuedSend {
+  text: string
+  settle?: (dropped?: Error) => void
+}
+
 interface StatuslinePayload {
   model?: { id?: string; display_name?: string }
   effort?: { level?: string }
@@ -126,7 +133,7 @@ export class SessionManager extends EventEmitter {
   private modal = new Set<string>()
   /** submissions queued per session until the TUI is ready; drained FIFO with
    *  an ack step between items */
-  private sendQueue = new Map<string, string[]>()
+  private sendQueue = new Map<string, QueuedSend[]>()
   /** sessions with a submission currently awaiting its ack */
   private sending = new Set<string>()
   /** per-session ack-verify timers, cancelled on kill/respawn */
@@ -179,6 +186,9 @@ export class SessionManager extends EventEmitter {
       this.launchedModel.delete(id)
       // a --resume that exits before SessionStart failed (e.g. transcript gone) → start fresh
       if (this.resuming.has(id)) return void this.resumeFailed(id)
+      // queued text can't land in a dead process — report it dropped now, not at
+      // a next spawn that may never come
+      this.clearSends(id, 'claude exited')
       // an expected kill (switch/restart) clears state itself; unexpected → exited
       if (this.get(id)?.state !== 'exited') this.setState(id, 'exited')
     })
@@ -296,7 +306,7 @@ export class SessionManager extends EventEmitter {
    */
   stop(id: string): void {
     this.clearFallbackTimer(id)
-    this.clearSends(id)
+    this.clearSends(id, 'the session was stopped')
     this.pendingContinue.delete(id)
     this.pendingUltracode.delete(id)
     // a stop during a --resume boot must read as a stop, not a failed resume
@@ -322,9 +332,17 @@ export class SessionManager extends EventEmitter {
     this.update(id, { claudeSessionId: null, transcriptPath: null })
     const session = this.get(id)
     if (!session) return
-    const queued = this.sendQueue.get(id) ?? [] // a message sent to the exited card must ride into the fresh process
-    await this.spawn(session, { resume: false })
-    for (const text of queued) this.send(id, text)
+    // a message sent to the exited card must ride into the fresh process — taken
+    // out first, or spawn's reset would report it dropped
+    const queued = this.sendQueue.get(id) ?? []
+    this.sendQueue.delete(id)
+    try {
+      await this.spawn(session, { resume: false })
+    } catch (e) {
+      for (const q of queued) q.settle?.(new Error(`not delivered: claude failed to start (${e})`))
+      throw e
+    }
+    for (const q of queued) this.send(id, q.text, q.settle)
   }
 
   remove(id: string): void {
@@ -337,7 +355,7 @@ export class SessionManager extends EventEmitter {
     this.resuming.delete(id)
     this.pendingContinue.delete(id)
     this.pendingUltracode.delete(id)
-    this.clearSends(id)
+    this.clearSends(id, 'the session was removed')
     this.ptys.kill(id)
     this.ptys.forget(id)
     this.store.set(
@@ -458,10 +476,11 @@ export class SessionManager extends EventEmitter {
         if (this.attentionKind.get(id) === 'paused') this.update(id, { state: 'idle' })
         else if (data.includes('\r') || /^[\x20-\x7e]$/.test(data)) this.update(id, { state: 'running' })
       }
-      // the user is typing in the terminal — abandon queued auto-submits and any
+      // the user is typing in the terminal — abandon queued submits and any
       // pending Enter retry, or a retry would fire their half-typed line (live-hit
-      // on the interrupted-resume "What should Claude do instead?" prompt)
-      this.abandonSends(id)
+      // on the interrupted-resume "What should Claude do instead?" prompt); a
+      // dropped chat message stays in its chat input
+      this.abandonSends(id, 'you typed in the terminal first')
     }
     this.ptys.write(id, data)
   }
@@ -478,7 +497,9 @@ export class SessionManager extends EventEmitter {
 
   /** Submit a chat message, proactively switching first if the rule calls for it.
    *  Goes through the send queue: instant when claude is up, held until the TUI
-   *  is ready when a switch just respawned it. */
+   *  is ready when a switch just respawned it. Resolves once the text is typed
+   *  into claude and rejects if it is dropped before that — until then the chat
+   *  input holds on to it. */
   async submit(id: string, text: string): Promise<void> {
     try {
       await this.maybeSwitchBeforeSubmit(id)
@@ -494,7 +515,7 @@ export class SessionManager extends EventEmitter {
     // input box to come back
     if (this.modal.has(id) && this.get(id)?.state !== 'needs-attention') this.ptys.write(id, '\x1b')
     this.clearFinished(id)
-    this.send(id, text)
+    return new Promise((resolve, reject) => this.send(id, text, (dropped) => (dropped ? reject(dropped) : resolve())))
   }
 
   shutdown(): void {
@@ -517,7 +538,7 @@ export class SessionManager extends EventEmitter {
     this.attentionKind.delete(session.id)
     this.clearFallbackTimer(session.id)
     this.launchedModel.set(session.id, session.modelId) // what --model asks for (null = the CLI's default)
-    this.clearSends(session.id) // queued submits from a prior incarnation must not fire into this one
+    this.clearSends(session.id, 'claude restarted') // queued submits from a prior incarnation must not fire into this one
     if (session.effort === 'ultracode') {
       this.pendingUltracode.add(session.id)
       this.update(session.id, { effort: null })
@@ -888,9 +909,9 @@ export class SessionManager extends EventEmitter {
    *   times if it never comes (the text already sits in the input box). Local
    *   slash commands never ack, so the timeout advances the queue either way.
    */
-  private send(id: string, text: string): void {
+  private send(id: string, text: string, settle?: QueuedSend['settle']): void {
     const q = this.sendQueue.get(id) ?? []
-    q.push(text)
+    q.push({ text, settle })
     this.sendQueue.set(id, q)
     this.drain(id)
   }
@@ -916,13 +937,14 @@ export class SessionManager extends EventEmitter {
       }
       return
     }
-    const text = this.sendQueue.get(id)?.shift()
-    if (text === undefined) return
+    const item = this.sendQueue.get(id)?.shift()
+    if (!item) return
     this.sending.add(id)
-    this.ptys.submit(id, text)
+    this.ptys.submit(id, item.text)
+    item.settle?.() // typed in: from here it sits in claude's input box even if it never acks
     // local slash commands never ack via UserPromptSubmit — don't re-press Enter
     // for them (a retry can only collide with whatever the user types next)
-    const maxRetries = text.startsWith('/') ? 0 : 3
+    const maxRetries = item.text.startsWith('/') ? 0 : 3
     let retries = 0
     const timer = setInterval(() => {
       const state = this.get(id)?.state
@@ -940,18 +962,20 @@ export class SessionManager extends EventEmitter {
     this.verifyTimers.set(id, timer)
   }
 
-  /** Drop queued/in-flight submissions (user took over, or nothing should land). */
-  private abandonSends(id: string): void {
+  /** Drop queued/in-flight submissions (user took over, or nothing should land);
+   *  chat messages still queued hear that, and why. */
+  private abandonSends(id: string, why: string): void {
     const t = this.verifyTimers.get(id)
     if (t) clearInterval(t)
     this.verifyTimers.delete(id)
+    for (const q of this.sendQueue.get(id) ?? []) q.settle?.(new Error(`not delivered: ${why}`))
     this.sendQueue.delete(id)
     this.sending.delete(id)
   }
 
   /** Full reset on kill/respawn — leftovers must never reach the NEXT process. */
-  private clearSends(id: string): void {
-    this.abandonSends(id)
+  private clearSends(id: string, why: string): void {
+    this.abandonSends(id, why)
     const f = this.readyFallbacks.get(id)
     if (f) clearTimeout(f)
     this.readyFallbacks.delete(id)
@@ -990,7 +1014,7 @@ export class SessionManager extends EventEmitter {
     if (!session || session.fallbackModel === toModel) return
     this.update(id, { fallbackModel: toModel })
     if (!session.stopOnFallback) return
-    this.abandonSends(id)
+    this.abandonSends(id, 'the session paused on a model fallback')
     if (session.state === 'running') this.ptys.write(id, '\x1b') // Esc: stop the fallback model mid-turn
     this.attentionKind.set(id, 'paused')
     this.update(id, { state: 'needs-attention' })

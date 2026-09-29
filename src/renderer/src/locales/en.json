@@ -44,6 +44,7 @@
     "inputPlaceholder": "Message Claude…",
     "dropHint": "Drop to add file path",
     "send": "Send",
+    "sendFailed": "Not sent — your message is still here; press Enter to retry",
     "settings": "Session settings",
     "switchWhenIdle": "(only while not running)",
     "popOut": "Open in separate window",

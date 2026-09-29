@@ -44,6 +44,7 @@
     "inputPlaceholder": "傳訊息給 Claude…",
     "dropHint": "放開以加入檔案路徑",
     "send": "送出",
+    "sendFailed": "沒有送出——訊息還在這裡，按 Enter 重送",
     "settings": "Session 設定",
     "switchWhenIdle": "（僅在非執行中可切換）",
     "popOut": "獨立視窗開啟",

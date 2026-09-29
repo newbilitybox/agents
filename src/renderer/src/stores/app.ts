@@ -19,6 +19,10 @@ interface AppStore extends AppState {
   drafts: Record<string, string>
   setDraft: (id: string, text: string) => void
   appendDraft: (id: string, text: string) => void
+  /** sessions whose chat message is on its way into claude (the input holds it
+   *  read-only meanwhile) — here too, so a remounted input can't send it twice */
+  sending: Record<string, boolean>
+  setSending: (id: string, on: boolean) => void
   /** the card a file is currently being dragged over (drop-zone highlight), or null */
   dragOverId: string | null
   setDragOverId: (id: string | null) => void
@@ -50,6 +54,8 @@ export const useApp = create<AppStore>((set) => ({
   drafts: {},
   setDraft: (id, text) => set((s) => ({ drafts: { ...s.drafts, [id]: text } })),
   appendDraft: (id, text) => set((s) => ({ drafts: { ...s.drafts, [id]: (s.drafts[id] ?? '') + text } })),
+  sending: {},
+  setSending: (id, on) => set((s) => ({ sending: { ...s.sending, [id]: on } })),
   dragOverId: null,
   setDragOverId: (id) => set((s) => (s.dragOverId === id ? s : { dragOverId: id })),
   groupFilter: null,

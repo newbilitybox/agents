@@ -137,7 +137,9 @@ export interface IpcApi {
   /** save an image blob to a temp file, return its path (for chat paste) */
   savePastedImage(bytes: Uint8Array, ext: string): Promise<string>
   ptyWrite(id: string, data: string): Promise<void>
-  /** submit a chat message (bracketed paste + Enter) */
+  /** submit a chat message (bracketed paste + Enter). Resolves once it is typed
+   *  into claude — which may wait for claude to boot or a dialog to close — and
+   *  rejects if it is dropped before that */
   ptySubmit(id: string, text: string): Promise<void>
   ptyResize(id: string, cols: number, rows: number): Promise<void>
   ptySnapshot(id: string): Promise<PtySnapshot>
