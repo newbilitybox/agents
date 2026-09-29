@@ -12,7 +12,7 @@ import { ChatInput } from '@/components/chat-input'
 import { EditableTitle } from '@/components/editable-title'
 import { SessionSettingsDialog } from '@/components/session-settings-dialog'
 import { STATE_DOT } from '@/lib/session-state'
-import { hasUsage, usageLines } from '@/lib/usage'
+import { UsageLines } from '@/components/usage-lines'
 import { cn } from '@/lib/utils'
 
 export function SessionCard({ session }: { session: SessionView }) {
@@ -30,10 +30,6 @@ export function SessionCard({ session }: { session: SessionView }) {
   // the chat input also serves an exited card: a submit resumes the session and delivers
   const inputOpen = focusedId === session.id && !session.poppedOut
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: session.id })
-
-  const usage = account && hasUsage(account.usage)
-    ? usageLines(account.usage, { current: t('usage.current'), weekly: t('usage.weekly'), reset: t('account.reset') })
-    : null
 
   // clicking the terminal/body activates a live card, or resumes an exited one;
   // the header (settings etc.) stays independent
@@ -97,7 +93,7 @@ export function SessionCard({ session }: { session: SessionView }) {
             <TooltipContent side="bottom" className="text-xs">
               <div>{session.cwd}</div>
               <div>{t(`session.state.${session.state}`)}</div>
-              {usage?.map((line) => <div key={line}>{line}</div>)}
+              {account && <UsageLines usage={account.usage} />}
             </TooltipContent>
           </Tooltip>
           <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">

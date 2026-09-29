@@ -4,7 +4,8 @@ import { SessionBody } from '@/components/session-body'
 import { ChatInput } from '@/components/chat-input'
 import { EditableTitle } from '@/components/editable-title'
 import { STATE_DOT } from '@/lib/session-state'
-import { hasUsage, usageLines } from '@/lib/usage'
+import { hasUsage } from '@/lib/usage'
+import { UsageLines } from '@/components/usage-lines'
 import { cn } from '@/lib/utils'
 
 /** Whole-window view of a single session, rendered in a pop-out window. */
@@ -22,11 +23,6 @@ export function StandaloneSession({ sessionId }: { sessionId: string }) {
       </div>
     )
   }
-
-  const usage =
-    account && hasUsage(account.usage)
-      ? usageLines(account.usage, { current: t('usage.current'), weekly: t('usage.weekly'), reset: t('account.reset') })
-      : null
 
   return (
     <div className="relative flex h-screen flex-col" data-session-id={sessionId}>
@@ -56,11 +52,9 @@ export function StandaloneSession({ sessionId }: { sessionId: string }) {
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <div className="font-medium">{accountName(accounts, session.accountDir)}</div>
-          {usage && (
+          {account && hasUsage(account.usage) && (
             <div className="text-muted-foreground text-left">
-              {usage.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
+              <UsageLines usage={account.usage} />
             </div>
           )}
         </div>

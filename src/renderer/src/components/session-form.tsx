@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { FilePlus2, FolderOpen, FolderPlus } from 'lucide-react'
 import type { Account, LimitRule, ModelOption, Session } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { LaunchArgsInput } from '@/components/launch-args-input'
-import { hasUsage, usageLines } from '@/lib/usage'
+import { hasUsage } from '@/lib/usage'
+import { UsageLines, useUsageLines } from '@/components/usage-lines'
 import { useApp } from '@/stores/app'
 
 const LIMIT_RULES: LimitRule[] = ['auto-switch', 'manual', 'wait-and-continue']
@@ -109,19 +109,17 @@ export const settingsJsonValid = (v: string): boolean => {
   }
 }
 
-/** compact one-liner for the closed select trigger */
-const accountSummary = (a: Account, t: TFunction): string => {
+/** compact one-liner for the closed select trigger: name + the current window */
+function AccountSummary({ a }: { a: Account }) {
+  const { t } = useTranslation()
+  const current = useUsageLines(a.usage)?.[0]
   if (a.loginStatus !== 'logged_in') return `${a.name} · ${t(`account.status.${a.loginStatus}`)}`
-  return a.usage.fiveHour != null ? `${a.name} · ${t('usage.current')} ${Math.round(a.usage.fiveHour)}%` : a.name
+  return current ? `${a.name} · ${current}` : a.name
 }
 
 /** full account info for a dropdown option: name/email/plan + usage or status */
 function AccountInfo({ a }: { a: Account }) {
   const { t } = useTranslation()
-  const detail =
-    a.loginStatus === 'logged_in' && hasUsage(a.usage)
-      ? usageLines(a.usage, { current: t('usage.current'), weekly: t('usage.weekly'), reset: t('account.reset') }).join(' · ')
-      : t(`account.status.${a.loginStatus}`)
   return (
     <div className="grid gap-0.5 py-0.5 text-left">
       <span className="flex items-center gap-2">
@@ -133,7 +131,9 @@ function AccountInfo({ a }: { a: Account }) {
           </Badge>
         )}
       </span>
-      <span className="text-muted-foreground text-xs">{detail}</span>
+      <span className="text-muted-foreground text-xs">
+        {a.loginStatus === 'logged_in' && hasUsage(a.usage) ? <UsageLines usage={a.usage} inline /> : t(`account.status.${a.loginStatus}`)}
+      </span>
     </div>
   )
 }
@@ -206,7 +206,7 @@ export function SessionForm({
         >
           <SelectTrigger className="w-full">
             {/* options carry the full two-line info; keep the closed trigger one line */}
-            {selected ? accountSummary(selected, t) : <SelectValue placeholder={t('session.accountAuto')} />}
+            {selected ? <AccountSummary a={selected} /> : <SelectValue placeholder={t('session.accountAuto')} />}
           </SelectTrigger>
           <SelectContent>
             {variant === 'create' && <SelectItem value={AUTO}>{t('session.accountAuto')}</SelectItem>}

@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useApp } from '@/stores/app'
-import { hasUsage, timeAgo, usageLines } from '@/lib/usage'
+import { hasUsage, timeAgo } from '@/lib/usage'
+import { UsageLines, useNow } from '@/components/usage-lines'
 import { AccountEditDialog } from '@/components/account-edit-dialog'
 import { AccountLoginDialog } from '@/components/account-login-dialog'
 
@@ -21,17 +22,8 @@ const STATUS_VARIANT: Record<LoginStatus, 'default' | 'secondary' | 'destructive
 function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: () => void; onLogin: () => void }) {
   const { t, i18n } = useTranslation()
   const [busy, setBusy] = useState(false)
-  // relative times ("updated 3 min ago", "reset 12m") are computed at render;
-  // with idle sessions nothing re-renders, so tick them along every 30s
-  const [, tick] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => tick((n) => n + 1), 30_000)
-    return () => clearInterval(id)
-  }, [])
+  useNow() // "updated 3 min ago" moves with the clock
   const u = account.usage
-  const lines = hasUsage(u)
-    ? usageLines(u, { current: t('usage.current'), weekly: t('usage.weekly'), reset: t('account.reset') })
-    : null
   const loggedIn = account.loginStatus === 'logged_in'
   // when the USAGE numbers last moved (statusline patch or /usage probe) — an
   // auth check alone must not make stale numbers look fresh
@@ -57,11 +49,9 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
           {account.configDir}
           {account.email ? ` · ${account.email}` : ''}
         </div>
-        {lines && (
+        {hasUsage(u) && (
           <div className="text-muted-foreground text-xs leading-relaxed">
-            {lines.map((line) => (
-              <div key={line}>{line}</div>
-            ))}
+            <UsageLines usage={u} />
           </div>
         )}
         {checkedText && (
