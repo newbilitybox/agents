@@ -222,6 +222,20 @@ export function planLabel(configDir: string, subscriptionType: string | null): s
   }
 }
 
+type ClaudeJson = Record<string, unknown>
+
+/** Rewrite the account's .claude.json through `change` (null: leave it be).
+ *  Temp file + rename, so a claude starting meanwhile never reads half a file;
+ *  keeps the file's mode, and writes through a symlinked (shared) config. */
+function patchClaudeJson(configDir: string, change: (config: ClaudeJson) => ClaudeJson | null): void {
+  const file = realpathSync(claudeJsonPath(configDir))
+  const next = change(JSON.parse(readFileSync(file, 'utf8')) as ClaudeJson)
+  if (!next) return
+  const tmp = `${file}.agents-${process.pid}`
+  writeFileSync(tmp, JSON.stringify(next, null, 2), { mode: statSync(file).mode & 0o777 })
+  renameSync(tmp, file)
+}
+
 /**
  * Mark first-run onboarding as done for a logged-in account. `claude auth
  * login` (OAuth) stores the credentials but never sets `hasCompletedOnboarding`
@@ -232,16 +246,44 @@ export function planLabel(configDir: string, subscriptionType: string | null): s
  */
 export function markOnboarded(configDir: string): void {
   try {
-    const file = realpathSync(claudeJsonPath(configDir)) // a symlinked config stays shared
-    const config = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
-    if (config['hasCompletedOnboarding'] === true) return
-    // write-then-rename: a claude starting meanwhile never reads half a file
-    const tmp = `${file}.agents-${process.pid}`
-    writeFileSync(tmp, JSON.stringify({ ...config, hasCompletedOnboarding: true }, null, 2), { mode: statSync(file).mode & 0o777 })
-    renameSync(tmp, file)
+    patchClaudeJson(configDir, (c) => (c['hasCompletedOnboarding'] === true ? null : { ...c, hasCompletedOnboarding: true }))
   } catch (err) {
     // no config yet = never logged in, nothing to fix
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') console.warn(`[auth] could not mark ${configDir} onboarded:`, err)
+  }
+}
+
+/** the record claude creates for a project it has not seen (verified 2.1.284) */
+const NEW_PROJECT = {
+  allowedTools: [],
+  mcpContextUris: [],
+  mcpServers: {},
+  enabledMcpjsonServers: [],
+  disabledMcpjsonServers: [],
+  hasTrustDialogAccepted: false,
+  hasClaudeMdExternalIncludesApproved: false,
+  hasClaudeMdExternalIncludesWarningShown: false
+}
+
+/**
+ * Record the git repository `cwd` is in as trusted by this account — what
+ * answering claude's trust dialog writes: projects[<repo root, real path>].
+ * `claude --worktree` refuses outright ("Workspace trust not yet accepted")
+ * where the account has not trusted the repo yet, rather than asking, and the
+ * app accepts that dialog for every session anyway. Best-effort: failing just
+ * lets the CLI say why it won't start.
+ */
+export async function trustRepo(configDir: string, cwd: string): Promise<void> {
+  try {
+    const { stdout } = await execFileP('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], { env: await loginShellEnv() })
+    const root = realpathSync(stdout.trim()).normalize('NFC')
+    patchClaudeJson(configDir, (c) => {
+      const projects = (c['projects'] ?? {}) as Record<string, ClaudeJson>
+      if (projects[root]?.['hasTrustDialogAccepted'] === true) return null
+      return { ...c, projects: { ...projects, [root]: { ...NEW_PROJECT, ...projects[root], hasTrustDialogAccepted: true } } }
+    })
+  } catch (err) {
+    console.warn(`[session] could not trust ${cwd} for ${configDir}:`, err)
   }
 }
 

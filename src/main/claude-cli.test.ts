@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { lstatSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectRateLimit, markOnboarded, parseUsageReport, planLabel, sessionArgs } from './claude-cli.ts'
+import { execFileSync } from 'node:child_process'
+import { detectRateLimit, markOnboarded, parseUsageReport, planLabel, sessionArgs, trustRepo } from './claude-cli.ts'
 
 const at = (y: number, mon: number, d: number, h: number, min = 0): number => new Date(y, mon - 1, d, h, min).getTime()
 const NOW = new Date(2026, 8, 29, 9, 33) // Sep 29 2026, 09:33 local
@@ -132,4 +133,27 @@ test('planLabel tells Max 5x from 20x by the rate-limit tier in .claude.json', (
   assert.equal(planLabel(profileWith({ userRateLimitTier: 'default_claude_max_5x', organizationRateLimitTier: 'x' }), 'max'), 'max 5x')
   assert.equal(planLabel(profileWith({ organizationRateLimitTier: 'default_claude_ai' }), 'pro'), 'pro')
   assert.equal(planLabel(mkdtempSync(join(tmpdir(), 'agents-test-')), 'max'), 'max') // no config to read
+})
+
+// `claude --worktree` refuses a folder the account never trusted, before it can ask
+test('trustRepo records the repository root as trusted, the way the trust dialog does', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'agents-test-repo-'))
+  execFileSync('git', ['init', '-q', repo])
+  mkdirSync(join(repo, 'sub'))
+  const profile = freshLogin()
+  await trustRepo(profile, join(repo, 'sub')) // any folder inside it
+  const root = realpathSync(repo) // /var/… → /private/var/…, as the CLI keys it
+  const config = JSON.parse(readFileSync(join(profile, '.claude.json'), 'utf8'))
+  assert.equal(config.projects[root].hasTrustDialogAccepted, true)
+  assert.deepEqual(config.projects[root].allowedTools, []) // the CLI's defaults for a new project record
+  assert.equal(config.numStartups, 1)
+})
+
+test('trustRepo keeps what an existing project record holds', async () => {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), 'agents-test-repo-')))
+  execFileSync('git', ['init', '-q', repo])
+  const profile = mkdtempSync(join(tmpdir(), 'agents-test-'))
+  writeFileSync(join(profile, '.claude.json'), JSON.stringify({ projects: { [repo]: { allowedTools: ['Bash(ls)'], lastCost: 1 } } }))
+  await trustRepo(profile, repo)
+  assert.deepEqual(JSON.parse(readFileSync(join(profile, '.claude.json'), 'utf8')).projects[repo].allowedTools, ['Bash(ls)'])
 })

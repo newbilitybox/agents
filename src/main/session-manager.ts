@@ -26,6 +26,7 @@ import {
   readSystemPrompt,
   sessionArgs,
   stripAnsi,
+  trustRepo,
   tuiInputState,
   unbridgeTranscript,
   writeSessionSettings,
@@ -553,6 +554,9 @@ export class SessionManager extends EventEmitter {
     // peer discovery is scoped to CLAUDE_CONFIG_DIR — share one registry so
     // sessions can message each other across accounts, not just within one
     linkSessionRegistry(session.accountDir)
+    // --worktree won't start in a repo this account never trusted (it refuses
+    // instead of asking), and the account may be new to it after a switch
+    if (session.worktree) await trustRepo(session.accountDir, session.cwd)
     const env = await envFor(session.accountDir)
     // Pinned input box + captured wheel scrolling (claude's alt-screen TUI) is
     // env/settings/statsig-gated, not terminal-detected — force it on so every
@@ -703,11 +707,21 @@ export class SessionManager extends EventEmitter {
     const session = this.get(sessionId)
     if (!session) return
     switch (event) {
-      case 'SessionStart':
+      case 'SessionStart': {
         this.resuming.delete(sessionId) // resume (or fresh start) succeeded
+        const claudeSessionId = (payload['session_id'] as string) ?? session.claudeSessionId
+        let transcriptPath = (payload['transcript_path'] as string) ?? session.transcriptPath
+        // a resumed worktree session reports the transcript path of the repo it
+        // starts in, then goes back into the worktree, whose project dir really
+        // holds the file (verified 2.1.284) — for the same conversation, keep
+        // the path known to exist, or the next account switch starts afresh
+        const known = session.transcriptPath
+        if (claudeSessionId === session.claudeSessionId && known && existsSync(known) && !existsSync(transcriptPath ?? '')) {
+          transcriptPath = known
+        }
         this.update(sessionId, {
-          claudeSessionId: (payload['session_id'] as string) ?? session.claudeSessionId,
-          transcriptPath: (payload['transcript_path'] as string) ?? session.transcriptPath,
+          claudeSessionId,
+          transcriptPath,
           // /clear starts a new conversation under a new id: the titles (the
           // user's and claude's) described the old one — drop them
           ...(payload['source'] === 'clear' && { title: null, cliTitle: null })
@@ -716,6 +730,7 @@ export class SessionManager extends EventEmitter {
         if (this.pendingUltracode.delete(sessionId)) this.send(sessionId, '/effort ultracode')
         if (this.pendingContinue.delete(sessionId)) this.send(sessionId, 'continue')
         break
+      }
       case 'UserPromptSubmit':
         this.deferredStop.delete(sessionId)
         this.setState(sessionId, 'running')
