@@ -17,7 +17,7 @@
     "release": "[ -f .env ] && . ./.env; node scripts/release.mjs"
   },
   "license": "ISC",
-  "packageManager": "pnpm@11.13.0+sha512.88d94724d8f2e6c186744a5584c6e59ecac869ec7ba15e9cb4cd628e8dc7066820b2481d8ee3b51ea8da323a7378068aa58c556a3720d32b7c20a051d088363a",
+  "packageManager": "pnpm@12.6.0+sha512.3ef68f951cb111ac204b4a5a16f0b2ddf0da56a96e0413e81d855d9f0b55ef926714709028e1cd00c405c2c5fb7b9e8ec4dc46777c805d0373c2f2ff00fd20ec",
   "dependencies": {
     "electron-store": "^11.0.2",
     "node-pty": "^1.1.0"

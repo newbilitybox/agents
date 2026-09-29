@@ -18,7 +18,6 @@ Electron app：每個 session 在 main 行程用 node-pty 跑一個 `claude` CLI
 
 ## 坑
 - claude 一啟動就退、零輸出 → 先懷疑 node-pty 被重建成 Node ABI：`pnpm rebuild`（postinstall 會自動跑 electron-rebuild）
-- `pnpm install` 報 `ERR_PNPM_BROKEN_PNPM_RELEASE`（package.json 釘的 pnpm 11.13.0 是壞版本）→ `npm_config_manage_package_manager_versions=false pnpm install`
 - `node_modules/electron/dist` 不存在（electron 二進位沒下載）→ `node node_modules/electron/install.js`
 - `pnpm dev` 只熱更 renderer；改了 `src/main` 或 `src/preload` 要整個重啟，否則新舊版本混跑，行為像「沒生效」
 - 資料目錄：正式版 `~/.agent-s`、dev `~/.agent-s-dev`，`AGENTS_USER_DATA_DIR` 可覆寫（也隔開 single-instance lock）；對話 transcript 不在這，在各帳號的 `<configDir>/projects/`
