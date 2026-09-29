@@ -24,3 +24,4 @@
 - 限額橫幅會被 `--resume` 重播、捲動時重繪：只有 running 中、新 chunk 裡、窗口＋reset（`LimitHit.key`）沒見過的橫幅才算新撞限額
 - default 帳號（`~/.claude`）的 `.claude.json` 在 `~` 而非目錄內：不設 `CLAUDE_CONFIG_DIR`（`envFor()`），讀寫它走 `claudeJsonPath()`
 - `electron-store` 的 `get()` 偶爾回 `undefined`：讀陣列一律 `?? []`
+- 原生系統通知在未簽名或 ad-hoc 簽名的 build 一律失敗，dev 的 `node_modules/electron` 也是：看到的是 `index.ts` 退回的 osascript 通知（以 Script Editor 名義）

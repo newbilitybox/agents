@@ -8,6 +8,7 @@ description: 打包、簽名、發佈 Agent S 的 GitHub release（熱更或完�
 ## 現況
 - 發佈版**未簽名、不公證**：`scripts/release.mjs` 的 `SIGN_OVERRIDES`（`-c.mac.identity=null -c.mac.notarize=false`）蓋掉 `electron-builder.yml` 的簽名設定。Developer ID 憑證 2026-07-21 撤銷，使用者目前沒有 Apple Developer 帳號。
 - 所以在別台 Mac 第一次開要右鍵 →「打開」（或 `xattr -dr com.apple.quarantine "/Applications/Agent S.app"`）。
+- 未簽名的 app 發不出原生通知：Electron 43 走 UNUserNotificationCenter，只接受有效簽名，ad-hoc 簽名也不行（實測）。`src/main/index.ts` 因此會退回 osascript。
 
 ## 兩種發佈
 - **熱更**：只換 `app.asar`（全部 JS＋依賴，跨架構同一包），使用者按「更新並重啟」即完成。

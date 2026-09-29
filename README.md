@@ -24,6 +24,7 @@
 **其他**
 - 跨帳號 session 互通：所有帳號共用一份 session registry，`ListAgents`／`SendMessage` 不再侷限於同一帳號。
 - 選單列常駐；退出時可選「背景執行」保留執行中的 session；系統通知（需處理／完成／限額／模型回退）；in-app 更新；繁簡中文＋英文、深淺色主題。
+- 目前的發佈版未簽名，macOS 不讓它發原生通知，所以通知改以「Script Editor」的名義顯示，點擊不會跳到該 session。
 
 ## 開發
 

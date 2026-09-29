@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, Tray } from 'electron'
+import { execFile } from 'node:child_process'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -109,6 +110,16 @@ function dirLabel(cwd: string): string {
 
 const iconPath = (): string => join(app.getAppPath(), 'assets', 'icon.png')
 
+/** Post a notification through osascript — the fallback for builds macOS won't
+ *  take native notifications from (see the notify handler). The text travels
+ *  as argv, so it needs no AppleScript quoting. */
+function scriptNotify(title: string, body: string): void {
+  const script = ['on run argv', 'display notification (item 2 of argv) with title (item 1 of argv)', 'end run']
+  execFile('osascript', [...script.flatMap((line) => ['-e', line]), title, body], (err) => {
+    if (err) console.warn('[notify] osascript failed:', err)
+  })
+}
+
 function bootstrap(): void {
   const store = createStore()
 
@@ -144,20 +155,33 @@ function bootstrap(): void {
   ptys.on('data', (ev) => windows.sendPty(ev))
 
   // every done / needs-attention / limit / fallback raises an OS notification,
-  // focused window or not — the user asked to be told, not to have to look
+  // focused window or not — the user asked to be told, not to have to look.
+  // macOS delivers native ones (Electron 43: UNUserNotificationCenter) only to
+  // a validly signed app; release builds are unsigned, and even an ad-hoc
+  // signature is refused (verified). Once that fails, osascript stands in for
+  // the rest of the run: Apple-signed, it always delivers — shown as Script
+  // Editor, and clicking it can't bring the card up.
+  let native = Notification.isSupported()
   sessions.on('notify', ({ id, kind, detail }: NotifyEvent) => {
-    if (!Notification.isSupported()) return
     const session = sessions.get(id)
     if (!session) return
     const who = `${session.title ?? session.cliTitle ?? dirLabel(session.cwd)} · ${accounts.get(session.accountDir)?.name ?? ''}`
     if (process.env['AGENTS_LOG_NOTIFY']) console.log(`[notify] ${kind} ${who}${detail ? ` — ${detail}` : ''}`) // e2e hook
-    const n = new Notification({ title: locale(NOTIFY_TEXT)[kind], body: detail ? `${who}\n${detail}` : who })
+    const title = locale(NOTIFY_TEXT)[kind]
+    const body = detail ? `${who}\n${detail}` : who
+    if (!native) return scriptNotify(title, body)
+    const n = new Notification({ title, body })
     n.on('click', () => {
       if (session.poppedOut) windows.focusPoppedOut(id)
       else {
         windows.focusMain()
         windows.sendToMain(EVENT_FOCUS_SESSION, id)
       }
+    })
+    n.on('failed', (_e, error) => {
+      console.warn(`[notify] native notifications unavailable (${error}); using osascript`)
+      native = false
+      scriptNotify(title, body)
     })
     n.show()
   })
