@@ -110,7 +110,7 @@ export function AccountLoginDialog({ account, onClose }: { account: Account; onC
                   autoFocus
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && void submit()}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && void submit()}
                   placeholder={t('account.loginCodePlaceholder')}
                 />
                 <Button onClick={() => void submit()} disabled={!code.trim() || submitting}>

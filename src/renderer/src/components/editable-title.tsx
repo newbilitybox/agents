@@ -40,6 +40,7 @@ export function EditableTitle({ session, className }: { session: SessionView; cl
         setEditing(false)
       }}
       onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return // an IME's Enter/Escape commits or cancels its composition
         if (e.key === 'Enter') e.currentTarget.blur()
         else if (e.key === 'Escape') setEditing(false) // unmount without blur → no save
       }}

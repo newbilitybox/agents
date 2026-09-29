@@ -7,4 +7,4 @@
 - 用量一律經 `components/usage-lines.tsx`（`UsageLines`／`useUsageLines()`）顯示：reset 已過的窗口讀作 0%、park 顯示 ⛔，並每 30 秒隨時間重算——這些值會變，卻沒有 state 推送觸發重繪
 
 ## 坑
-- 中文輸入法按 Enter 確認組字（例如直接輸出英文字母）卻觸發了送出 → Chromium 把這個 Enter 也報成 key `'Enter'` → 送出／確認類的 Enter 處理要先排除 `e.nativeEvent.isComposing`
+- 中文輸入法按 Enter 確認組字（例如直接輸出英文字母）卻觸發了送出 → Chromium 把輸入法吃掉的 Enter／Escape 照樣報成 key `'Enter'`／`'Escape'` → 送出、確認、取消類的按鍵處理要先排除 `e.nativeEvent.isComposing`
