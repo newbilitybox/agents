@@ -18,15 +18,17 @@
  *     manifest — or there is no published manifest yet — --full is required:
  *     a hot package cannot update native parts
  *
- * Signing: ad-hoc (identity=null) while the Developer ID cert is revoked
- * (2026-07-21). When a new cert lands, drop SIGN_OVERRIDES below so the yml's
- * signed + notarized flow applies (source .env first, see .claude/skills/release).
+ * Signing: --full installers are signed with the Developer ID certificate in the
+ * keychain, then submitted to notarization without waiting (API key from .env,
+ * which `pnpm release` sources — see .claude/skills/release). The hot package
+ * only needs the app.asar, so its throwaway --dir build stays unsigned and
+ * needs no credentials.
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -75,7 +77,15 @@ const tagTaken = (await fetch(`https://api.github.com/repos/${repo}/releases/tag
 if (tagTaken) die(`a v${version} release already exists on GitHub — bump package.json first`)
 
 // ── build ───────────────────────────────────────────────────────────────────
-const SIGN_OVERRIDES = ['-c.mac.identity=null', '-c.mac.notarize=false']
+// check the signing prerequisites up front, not after minutes of building
+const { APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER } = process.env
+if (full) {
+  if (!APPLE_API_KEY || !APPLE_API_KEY_ID || !APPLE_API_ISSUER) {
+    die('--full notarizes the installers: APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER not set (.env, see .claude/skills/release)')
+  }
+  const identities = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' })
+  if (!identities.includes('Developer ID Application')) die('--full signs the installers: no Developer ID Application certificate in the keychain')
+}
 rmSync(join(root, 'release'), { recursive: true, force: true }) // stale artifacts would pollute the asset list
 run('pnpm', ['build'])
 /** The packaged app must carry native binaries of ITS arch — a stale/mixed
@@ -98,11 +108,11 @@ if (full) {
     run('pnpm', ['exec', 'electron-rebuild', '-f', '-w', 'node-pty', '--arch', arch])
     // --publish never: with GH_TOKEN in the env (CI), electron-builder's own
     // GitHub publisher would kick in and fight the gh upload below
-    run('pnpm', ['exec', 'electron-builder', '--mac', `--${arch}`, '--publish', 'never', ...SIGN_OVERRIDES])
+    run('pnpm', ['exec', 'electron-builder', '--mac', `--${arch}`, '--publish', 'never']) // signed per the yml
     verifyNativeArch(arch)
   }
 } else {
-  run('pnpm', ['exec', 'electron-builder', '--mac', '--dir', '--publish', 'never', ...SIGN_OVERRIDES])
+  run('pnpm', ['exec', 'electron-builder', '--mac', '--dir', '--publish', 'never', '-c.mac.identity=null'])
 }
 
 // the asar is pure JS — identical across arches; take it from whichever app exists
@@ -143,6 +153,23 @@ if (dryRun) {
   console.log('\n--dry-run: nothing uploaded. Manifest:')
   console.log(readFileSync(join(hotDir, 'latest.json'), 'utf8'))
   process.exit(0)
+}
+
+// ── notarize, without waiting ───────────────────────────────────────────────
+// A new team's first submissions can sit at Apple for over an hour; don't hold
+// the release for them. Once Apple accepts, Gatekeeper finds the ticket online
+// for these exact binaries — nothing to re-upload; until then a fresh download
+// is still blocked on first open. The zips carry the same signed app as the DMGs.
+if (full) {
+  for (const zip of assets.filter((a) => a.endsWith('.zip'))) {
+    const out = execFileSync(
+      'xcrun',
+      ['notarytool', 'submit', zip, '--key', APPLE_API_KEY, '--key-id', APPLE_API_KEY_ID, '--issuer', APPLE_API_ISSUER, '--no-wait'],
+      { encoding: 'utf8' }
+    )
+    console.log(`notarization submitted for ${basename(zip)}: ${/^\s*id: (\S+)/m.exec(out)?.[1] ?? out.trim()}`)
+  }
+  console.log('follow it with `xcrun notarytool history` (see .claude/skills/release)')
 }
 
 // ── upload ──────────────────────────────────────────────────────────────────

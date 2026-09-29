@@ -4,15 +4,16 @@
 # re-publish an existing version, and refuses hot-only when the native runtime
 # — Electron / node-pty — changed).
 #
-# Run it from the Actions tab ("Run workflow"): tick "full" when Electron or
-# node-pty changed, or for the very first release.
+# Run it from the Actions tab ("Run workflow") for hot releases. Full releases
+# are signed and notarized, and this runner has neither the certificate nor the
+# notarization key: run `pnpm release --full` on the Mac that holds them.
 name: Release
 
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: 'Full release (DMG/zip installers; required for the first release and whenever Electron/node-pty changed)'
+        description: 'Full release (DMG/zip installers) — needs the signing certificate and notarization key, which this runner lacks; run `pnpm release --full` locally instead'
         type: boolean
         default: false
       notes:

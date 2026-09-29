@@ -32,10 +32,10 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Notarize via notarytool (electron-builder 26 wants a boolean here). Creds +
-  # team come from .env: API key (team derived from the key), or Apple ID +
-  # APPLE_TEAM_ID. Team must match the Developer ID cert (R9J9KG7R9J).
-  notarize: true
+  # Not here: scripts/release.mjs submits the release builds to notarization
+  # without waiting — a new team's first submissions can sit at Apple for over
+  # an hour. So `pnpm package` builds are signed only (fine on this Mac).
+  notarize: false
 # DMG opens to the classic "drag app → Applications" layout
 dmg:
   title: ${productName}

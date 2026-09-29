@@ -24,7 +24,7 @@
 **其他**
 - 跨帳號 session 互通：所有帳號共用一份 session registry，`ListAgents`／`SendMessage` 不再侷限於同一帳號。
 - 選單列常駐；退出時可選「背景執行」保留執行中的 session；系統通知（需處理／完成／限額／模型回退）；in-app 更新；繁簡中文＋英文、深淺色主題。
-- 目前的發佈版未簽名，macOS 不讓它發原生通知，所以通知改以「Script Editor」的名義顯示，點擊不會跳到該 session。
+- 系統通知需要簽名版（0.2.30 起的安裝包）才是原生通知，點擊會跳到該 session；0.2.29 以前的未簽名安裝與開發版改以「Script Editor」名義顯示，點擊不會跳過去。從舊版升級要重新下載 DMG 安裝一次。
 
 ## 開發
 
@@ -42,10 +42,10 @@ pnpm test        # 單元測試（Node 內建 test runner）
 ```bash
 pnpm release --dry-run           # 只建置、列出會上傳什麼
 pnpm release --notes "修了 X"     # 熱更：只換 app.asar，使用者按「更新並重啟」即可
-pnpm release --full --notes "…"  # 換過 Electron／node-pty 時必須用，附 DMG/zip 安裝包
+pnpm release --full --notes "…"  # 附簽名的 DMG/zip 並送 Apple 公證；換過 Electron／node-pty 時必須用
 ```
 
-目前的發佈版未經 Developer ID 簽名與公證，在別台 Mac 第一次開要右鍵 →「打開」。細節見 `.claude/skills/release/SKILL.md`。
+完整版在有 Developer ID 憑證與公證金鑰（`.env`）的 Mac 上發佈，上傳需要登入的 `gh`。細節見 `.claude/skills/release/SKILL.md`。
 
 ## 已知限制
 - 閒置帳號的用量靠定期（每 15 分鐘，以及打開設定時）跑 `claude -p /usage` 取得；執行中的 session 由 statusline 即時回報。各模型（如 Fable）的窗口只有前者有。
