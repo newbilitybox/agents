@@ -3,7 +3,7 @@
 2026-09-29 以前的條目整理自舊的 `ARCHITECTURE.md`／`PACKAGING.md` 與 git log，除了有明確使用者要求的，狀態都先標「暫定（待使用者確認）」。
 
 - 2026-07-16 暫定（待使用者確認）：一個帳號＝一個 `CLAUDE_CONFIG_DIR`（沿用 claude-switch 的 profile 慣例），default 帳號（`~/.claude`）不設這個變數。原因：使用者長期用 claude-switch 並用多個 profile，證明隔離可行，不必碰 Keychain；不選：搬移 Keychain 憑證來切換帳號；代價：default 帳號的 `.claude.json` 在 `~` 而非目錄內，凡是讀寫帳號設定的地方都要特判。
-- 2026-07-16 暫定（待使用者確認）：閒置帳號的用量由本地跑一次 claude、打 `/usage` 刮面板取得；執行中的 session 由 statusline 即時回報。原因：非官方的 `api/oauth/usage` 429 嚴重，2026-07-16 還整批回傳 0%（CLI 自己的面板正常），而且要碰 Keychain token；不選：oauth usage API；代價：每次探測約 15 秒，要推進信任框與主題選擇器，面板是差異重繪、解析脆弱。
+- 【已被 2026-09-29 取代】2026-07-16 暫定（待使用者確認）：閒置帳號的用量由本地跑一次 claude、打 `/usage` 刮面板取得；執行中的 session 由 statusline 即時回報。原因：非官方的 `api/oauth/usage` 429 嚴重，2026-07-16 還整批回傳 0%（CLI 自己的面板正常），而且要碰 Keychain token；不選：oauth usage API；代價：每次探測約 15 秒，要推進信任框與主題選擇器，面板是差異重繪、解析脆弱。
 - 2026-08-03 暫定（待使用者確認）：強制 claude 的釘底全螢幕 TUI（`CLAUDE_CODE_NO_FLICKER=1`），XTVERSION 由 main 的 pty-manager 代答 `xterm.js(5.5.0)`，終端用 xterm 5.5＋addon-webgl 0.19。原因：輸入框釘底、內容捲動，和在 iTerm2 裡一致；claude 靠 XTVERSION 套用 xterm.js 的滾輪參數；不選：升 xterm 6（webgl 穩定版不支援，只剩 DOM renderer，快速重繪會卡）、冒充 `TERM_PROGRAM=vscode`（claude 會自動裝 VS Code extension 並報錯）；代價：滑鼠追蹤開著，點或滾終端會送滑鼠回報，要在 `SessionManager.write()` 濾掉，免得被當成打字。
 - 2026-08-13 暫定（待使用者確認）：in-app 更新走 GitHub Releases：熱更只換 `app.asar`；Electron 或 node-pty 版本變了（`runtime` 指紋不符）才引導下載完整安裝包。原因：大部分改動只動 JS，熱更免重裝；原生部分換了 ABI 會直接壞掉；不選：electron-updater（macOS 版要求 app 已簽名）；代價：熱更會就地改寫 `.app` 裡的 asar，已簽名的 bundle 會因此破封。
 - 2026-08-13 暫定（待使用者確認）：發佈版暫以未簽名、不公證出貨（`scripts/release.mjs` 的 `SIGN_OVERRIDES`）。原因：Developer ID 憑證 2026-07-21 撤銷，使用者目前沒有 Apple Developer 帳號；代價：在別台 Mac 第一次開要右鍵「打開」。
@@ -17,3 +17,4 @@
 - 2026-09-03 使用者拍板：session 標題只用使用者自設的，或 CLI 的 `session_name`（`/rename` 的名字或它的 AI 摘要），不拿 prompt 內容當標題。原因：使用者明確不要；不選：取第一則 prompt 當標題；代價：新 session 在 CLI 產生摘要前（第一則 prompt 後幾秒）只顯示目錄名。
 - 2026-09-04 暫定（待使用者確認）：每個 session 持久化記住見過的限額橫幅，只有 running 中、新 chunk 裡出現的不同橫幅才算新撞限額。原因：CLI 會把橫幅寫進 transcript，換帳號 `--resume` 會重播它；把重播當成新撞限額，曾把所有健康帳號逐一 park 光；不選：只在行程內去重；代價：同一則橫幅的第二次真撞限額會被當成重播，只能靠 park 仍有效時把 session 標回 rate-limited。
 - 2026-09-28 暫定（待使用者確認）：倉庫從 `aria0509/agents` 搬到 `newbilitybox/agents`，更新來源改指新倉庫；舊倉庫的 v0.2.26（橋接熱更，asar 裡的更新來源已指向新倉庫）與 v0.2.9（其 manifest 的 `full.url`）兩個 release 不可刪除。原因：尚未升級的舊安裝靠它們取得更新；不選：直接棄用舊倉庫；代價：舊倉庫得一直留著這兩個 release。
+- 2026-09-29 使用者拍板：閒置帳號的用量改用 `claude -p /usage --no-session-persistence` 取得，執行中的 session 仍由 statusline 即時回報。原因：它跑的是本地 slash command、不呼叫模型，約 3 秒；輸出是純文字且 reset 一律帶日期，不需要 pty、信任框、主題選擇器與 settle 邏輯；TUI 面板會先畫快取的舊值、刷新後只重畫有變動的行，刮出來常是舊數字，已經過去的 reset（「9:29am」）還被解析成隔天，帳號因此被當成滿額一整天；不選：繼續刮 TUI 面板、非官方的 oauth usage API；代價：CLI 取不到新值時（例如 429）會印上次存下的值、不加標示，只能靠 reset 時間已過來判斷窗口已經結束。

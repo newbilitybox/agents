@@ -25,7 +25,7 @@ Electron app：每個 session 在 main 行程用 node-pty 跑一個 `claude` CLI
 - 清理測試行程絕不能用 `pkill -f session-settings/`：正式版 app 的 claude 命令列也含這串，會殺掉使用者的 session；只匹配自己的測試資料目錄
 
 ## 流程
-- 型別檢查：`pnpm typecheck`
+- 單元測試：`pnpm test`（node:test 直接跑 `src/**/*.test.ts`；import 要寫 `.ts` 副檔名，只能測不 import electron／node-pty 的模組）；型別檢查：`pnpm typecheck`
 - 把 app 跑起來驗證改動：skill `verify-app`
 - 打包、簽名、發佈：skill `release`
 - CLI 改版後查它的新行為（文案、旗標、面板、hook payload）：skill `cli-behavior`

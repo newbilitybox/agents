@@ -33,7 +33,7 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
     ? usageLines(u, { current: t('usage.current'), weekly: t('usage.weekly'), reset: t('account.reset') })
     : null
   const loggedIn = account.loginStatus === 'logged_in'
-  // when the USAGE numbers last moved (statusline patch or panel probe) — an
+  // when the USAGE numbers last moved (statusline patch or /usage probe) — an
   // auth check alone must not make stale numbers look fresh
   const checkedAt = u.updatedAt ?? account.authCheckedAt
   const checkedText = account.usageRefreshing

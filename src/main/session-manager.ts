@@ -768,7 +768,7 @@ export class SessionManager extends EventEmitter {
           this.update(sessionId, { state: 'done' })
           this.emit('notify', { id: sessionId, kind: 'done', detail: snippet(payload['last_assistant_message']) })
         }
-        // per-model (Fable) numbers only come from the panel probe — keep them
+        // per-model (Fable) numbers only come from the /usage probe — keep them
         // fresh for the accounts actually being spent
         this.accounts.refreshUsageIfStale(session.accountDir, 5 * 60_000)
         break
@@ -889,7 +889,8 @@ export class SessionManager extends EventEmitter {
    * it once the TUI can actually take it. Two failure modes this absorbs, both
    * seen live around account switches:
    * - a paste into a claude still replaying a resumed transcript lands in the
-   *   input box but the trailing Enter gets eaten → gate on isTuiReady;
+   *   input box but the trailing Enter gets eaten → gate on the input box
+   *   being up (tuiInputState);
    * - even then a submission can silently not register → after sending, expect
    *   claude's UserPromptSubmit ack (state → running) and re-press Enter a few
    *   times if it never comes (the text already sits in the input box). Local

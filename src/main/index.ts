@@ -173,7 +173,7 @@ function bootstrap(): void {
   const cliUpdated = updateClaudeCli()
   // refresh auth for every account (fast), then probe usage in the background
   // and keep it fresh — auto-switch decisions must not run on day-old numbers.
-  // Each probe scrapes that account's own /usage panel (fetchUsage, ~15s).
+  // Each probe asks that account's CLI for its /usage report (fetchUsage).
   void Promise.all([cliUpdated, accounts.refreshAllAuth()]).then(() => accounts.refreshAllUsage())
   setInterval(() => void accounts.refreshAllUsage(), 15 * 60_000)
 

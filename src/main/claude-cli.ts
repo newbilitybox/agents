@@ -13,7 +13,6 @@ import {
   closeSync,
   appendFileSync,
   mkdirSync,
-  copyFileSync,
   cpSync,
   existsSync,
   readFileSync,
@@ -25,8 +24,7 @@ import {
   symlinkSync
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
-import pty from 'node-pty'
+import { dirname, join, resolve } from 'node:path'
 import type { AccountUsage } from '../shared/types'
 
 const execFileP = promisify(execFile)
@@ -385,10 +383,9 @@ export function isTrustPrompt(text: string): boolean {
  * bare Enter would QUIT claude and the caller must arrow DOWN onto the
  * affirmative choice first. The current "Quick safety check" trust prompt does
  * exactly this — "❯ No, exit" is the default, "Yes, I trust this folder" the
- * line below (same shape as the bypass disclaimer). Left un-handled, the usage
- * probe gets nothing (per-model/Fable usage never loads) and an account-switch
- * resume dies on the new account. Returns false for screens a plain Enter
- * accepts (theme picker, "Press Enter to continue", non-exiting trust variants).
+ * line below (same shape as the bypass disclaimer). Left un-handled, an
+ * account-switch resume dies on the new account's prompt. Returns false for
+ * screens a plain Enter accepts (non-exiting trust variants).
  */
 export function preselectsExit(text: string): boolean {
   const s = stripAnsi(text)
@@ -423,19 +420,6 @@ export function isInterruptNotice(text: string): boolean {
 export function isBypassWarning(text: string): boolean {
   const s = stripAnsi(text)
   return /bypass\s*permissions\s*mode/i.test(s) && /Yes,\s*I\s*accept|No,\s*exit/i.test(s)
-}
-
-/**
- * Whether the TUI has rendered its interactive input box. Until then, a pasted
- * submission lands in the input buffer but the trailing Enter gets eaten —
- * e.g. while `--resume` is still replaying a transcript (seen live). Signals,
- * any of which suffices (footers vary by state — the interrupted-resume screen
- * shows "bypass permissions on (shift+tab to cycle)" with NO "? for shortcuts"):
- * the shortcut hints, the mode footer, or our own injected statusline marker
- * ("◉ agents · <account>", from hook-server's statuslineText — keep in sync).
- */
-export function isTuiReady(text: string): boolean {
-  return /\?\s*for\s*shortcuts|Try\s*"|shift\+tab\s*to\s*cycle|◉\s*agents/i.test(stripAnsi(text))
 }
 
 /**
@@ -516,197 +500,80 @@ export function extractLoginUrl(text: string): string | null {
   return plain ? plain[0] : null
 }
 
-// ── usage probe (claude's own /usage panel) ─────────────────────────────────
+// ── usage (claude's own /usage report) ──────────────────────────────────────
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
-/** Panel reset note → epoch ms. Formats: "6:10pm" (today/tomorrow) or
- *  "Jul 16 at 9pm"; spaces may be collapsed by cursor-positioning codes. */
-function parseResetTime(s: string): number | null {
-  const m = /(?:([A-Za-z]{3})\s*(\d{1,2})\s*at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(s)
-  if (!m) return null
-  const [, mon, day, h12, min, ampm] = m
-  const d = new Date()
-  d.setSeconds(0, 0)
-  d.setHours((parseInt(h12, 10) % 12) + (ampm.toLowerCase() === 'pm' ? 12 : 0), min ? parseInt(min, 10) : 0)
-  const monthIdx = mon ? MONTHS.indexOf(mon.toLowerCase()) : -1
-  if (monthIdx >= 0) {
-    d.setMonth(monthIdx, parseInt(day, 10))
-    if (d.getTime() < Date.now() - 86_400_000) d.setFullYear(d.getFullYear() + 1)
-  } else if (d.getTime() <= Date.now()) {
-    d.setDate(d.getDate() + 1)
-  }
-  return d.getTime()
-}
-
-interface UsageSection {
-  percent: number | null
-  resetsAt: number | null
-}
-
-/** Read one section's "N% used … Resets <when>" from the text right after its
- *  header (at `start`), scoped to before the next section so a section missing
- *  its own "Resets" line (0% windows have none) doesn't pick up the neighbour's,
- *  and so the footer's "N% of your usage…" lines can't bleed in. Values only
- *  overwrite `into` when present — a partial repaint keeps an earlier render's. */
-function readSection(clean: string, start: number, into: UsageSection): void {
-  let tail = clean.slice(start, start + 400)
-  const next = /Current\s*(session|week)|What.s\s*contributing|Usage\s*credits/i.exec(tail)
-  if (next) tail = tail.slice(0, next.index)
-  const used = /(\d{1,3})\s*%\s*used/i.exec(tail)
-  if (!used) return
-  into.percent = parseInt(used[1], 10)
-  const resets = /Resets\s*([^()\n]{1,40})/i.exec(tail)
-  if (resets) into.resetsAt = parseResetTime(resets[1])
+/** A dated reset — "Sep 29 at 1:30pm", "Jan 2, 2027 at 7am" — as epoch ms. The
+ *  CLI formats in the machine's zone and adds the year only when it differs
+ *  from the current one. */
+function parseResetDate(s: string, now: Date): number | null {
+  const m = /([A-Za-z]{3})\s*(\d{1,2})(?:,\s*(\d{4}))?\s*at\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(s)
+  const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1
+  if (!m || month < 0) return null
+  const hour = (parseInt(m[4], 10) % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0)
+  const year = m[3] ? parseInt(m[3], 10) : now.getFullYear()
+  return new Date(year, month, parseInt(m[2], 10), hour, m[5] ? parseInt(m[5], 10) : 0).getTime()
 }
 
 /**
- * Parse the /usage panel out of accumulated TUI output. The TUI repaints only
- * changed lines, so ANY render — including the newest — can be partial: a
- * section's header and its numbers may never appear together in the final frame
- * (seen live: the last repaint of the Fable row was just `Fable)…67`, header
- * gone). So never slice to "the last render"; instead walk EVERY occurrence of
- * each header across the whole buffer and let the newest one that carries a
- * value win. Returns null until both the session and weekly sections have
- * rendered their percentages.
+ * Parse the report `claude -p /usage` prints (verified 2.1.284):
+ *   Current session: 28% used · resets Sep 29 at 1:30pm (Asia/Tokyo)
+ *   Current week (all models): 8% used · resets Oct 1 at 8:59pm (Asia/Tokyo)
+ *   Current week (Fable): 0% used · resets Oct 1 at 9pm (Asia/Tokyo)
+ * Every reset carries its date, so one already in the past reads as a window
+ * that is over — never as "the same time tomorrow". Null unless both the
+ * session and the weekly line are there (API-key accounts print neither).
  */
-export function parseUsagePanel(raw: string): AccountUsage | null {
-  const clean = stripAnsi(raw)
-  const session: UsageSection = { percent: null, resetsAt: null }
-  const weekly: UsageSection = { percent: null, resetsAt: null }
-  for (const m of clean.matchAll(/Current\s*session/gi)) readSection(clean, m.index + m[0].length, session)
-  for (const m of clean.matchAll(/Current\s*week\s*\(\s*all\s*models\s*\)/gi))
-    readSection(clean, m.index + m[0].length, weekly)
-  if (session.percent === null || weekly.percent === null) return null
-
-  // per-model weekly windows, e.g. "Current week (Fable)" — keyed by name
-  const models = new Map<string, UsageSection>()
-  for (const m of clean.matchAll(/Current\s*week\s*\(\s*([^)]+?)\s*\)/gi)) {
-    if (/all\s*models/i.test(m[1])) continue
-    const name = m[1].replace(/\s+/g, ' ').replace(/\s*only$/i, '') // "(Sonnet only)" → "Sonnet"
-    const into = models.get(name) ?? { percent: null, resetsAt: null }
-    models.set(name, into)
-    readSection(clean, m.index + m[0].length, into)
+export function parseUsageReport(text: string, now = new Date()): AccountUsage | null {
+  type Window = { percent: number; resetsAt: number | null }
+  let session: Window | null = null
+  let weekly: Window | null = null
+  const models: AccountUsage['weeklyModels'] = []
+  for (const m of text.matchAll(/^Current (session|week \((.+?)\)): (\d{1,3})% used(?: · resets (.+))?$/gm)) {
+    const w: Window = { percent: parseInt(m[3], 10), resetsAt: m[4] ? parseResetDate(m[4], now) : null }
+    if (m[1] === 'session') session = w
+    else if (m[2] === 'all models') weekly = w
+    else models.push({ name: m[2].replace(/ only$/, ''), ...w }) // "(Sonnet only)" → "Sonnet"
   }
+  if (!session || !weekly) return null
   return {
     fiveHour: session.percent,
     weekly: weekly.percent,
     resetsAt: session.resetsAt,
     weeklyResetsAt: weekly.resetsAt,
-    weeklyModels: [...models]
-      .filter(([, v]) => v.percent !== null)
-      .map(([name, v]) => ({ name, percent: v.percent!, resetsAt: v.resetsAt })),
+    weeklyModels: models,
     limitedUntil: null,
-    updatedAt: Date.now()
+    updatedAt: now.getTime()
   }
 }
 
 /**
- * Usage by asking claude itself: spawn the TUI, open /usage, scrape the panel,
- * kill. Slower than an HTTP call (a few seconds) but by definition shows
- * exactly what claude shows, and needs no token juggling — the undocumented
- * oauth usage endpoint silently drifted (returned zeros) and is not to be
- * trusted. Returns null on any failure; live usage still flows from the
- * statusline while a session is active. Retries once — like `authStatus`,
- * concurrently-started CLIs occasionally exit right away.
+ * Usage exactly as claude reports it: `claude -p /usage` runs the local slash
+ * command and prints a plain-text report — no model call, a second or two. The
+ * TUI's /usage panel is not scraped: it paints a cached copy first and then
+ * repaints only the lines that changed, so a scrape read stale numbers. The
+ * undocumented oauth usage endpoint is not used either: it silently drifted to
+ * zeros. Null on failure; live usage still flows from the statusline while a
+ * session runs. Retries once — like `authStatus`, CLIs started concurrently
+ * occasionally fail.
  */
 export async function fetchUsage(configDir: string, retry = 1): Promise<AccountUsage | null> {
-  const usage = await probeUsage(configDir)
-  if (usage || retry <= 0) return usage
-  return fetchUsage(configDir, retry - 1)
-}
-
-/** First-run screens the probe can safely advance through with Enter: the
- *  folder-trust prompt and one-time pickers (e.g. the theme picker a profile
- *  shows again after some CLI updates) that sit between spawn and the input
- *  box. Probe-only — in a real session the user answers these themselves. */
-function isAdvancePrompt(text: string): boolean {
-  return isTrustPrompt(text) || /Choose\s*the\s*text\s*style|Press\s*Enter\s*to\s*continue/i.test(stripAnsi(text))
-}
-
-/** `--settings` for helper REPLs (the usage probe): keep them off the cloud
- *  too — an unconfigured REPL registers a Remote Control session on startup */
-function localOnlySettings(): string {
-  const file = join(tmpdir(), 'agents-local-only-settings.json')
-  writeFileSync(file, JSON.stringify({ remoteControlAtStartup: false }))
-  return file
-}
-
-async function probeUsage(configDir: string): Promise<AccountUsage | null> {
   const [bin, env] = await Promise.all([claudePath(), envFor(configDir)])
-  const args = ['--settings', localOnlySettings()]
-  const proc = pty.spawn(bin, args, { name: 'xterm-256color', cols: 120, rows: 40, cwd: scratchCwd(), env })
-  let buf = ''
-  let advances = 0
-  let sent = false
-  let lastParse = ''
-  return new Promise((resolve) => {
-    let done = false
-    const finish = (usage: AccountUsage | null): void => {
-      if (done) return // our own kill() below re-enters via onExit
-      done = true
-      clearInterval(poll)
-      clearTimeout(deadline)
-      const debugDir = process.env['AGENTS_USAGE_DEBUG_DIR']
-      if (debugDir) {
-        try {
-          mkdirSync(debugDir, { recursive: true })
-          writeFileSync(join(debugDir, `usage-${basename(configDir)}-${Date.now()}.txt`), buf)
-        } catch {
-          /* debug only */
-        }
-      }
-      try {
-        proc.kill()
-      } catch {
-        /* already gone */
-      }
-      resolve(usage)
-    }
-    const deadline = setTimeout(() => finish(parseUsagePanel(buf)), 45_000)
-    proc.onData((d) => {
-      buf += d
-      if (buf.length > 400_000) buf = buf.slice(-200_000)
-    })
-    proc.onExit(() => finish(null))
-    const poll = setInterval(() => {
-      if (!sent) {
-        if (isTuiReady(buf)) {
-          sent = true
-          buf = ''
-          proc.write('/usage')
-          setTimeout(() => {
-            try {
-              proc.write('\r')
-            } catch {
-              /* probe already ended */
-            }
-          }, 250)
-        } else if (advances < 5 && isAdvancePrompt(buf)) {
-          advances++ // once per screen: clearing buf re-arms for the next one
-          const down = preselectsExit(buf) // trust prompt defaults to "❯ No, exit"
-          buf = ''
-          if (down) proc.write('\x1b[B') // ↓ : No, exit → Yes, I trust this folder
-          setTimeout(() => {
-            try {
-              proc.write('\r') // confirm (a beat after ↓ so the repaint settles)
-            } catch {
-              /* probe already ended */
-            }
-          }, down ? 150 : 0)
-        }
-        return
-      }
-      // settle: the panel keeps (re)painting while its data loads — finish only
-      // once the parsed values hold still across two polls, so a per-model
-      // section that renders a beat after session/weekly isn't cut off
-      const usage = parseUsagePanel(buf)
-      if (!usage) return
-      const key = JSON.stringify([usage.fiveHour, usage.weekly, usage.resetsAt, usage.weeklyResetsAt, usage.weeklyModels])
-      if (key === lastParse) finish(usage)
-      else lastParse = key
-    }, 400)
-  })
+  let out = ''
+  try {
+    // no transcript for the probe; the scratch cwd keeps claude out of ~
+    const run = execFileP(bin, ['-p', '/usage', '--no-session-persistence'], { env, cwd: scratchCwd(), timeout: 60_000 })
+    run.child.stdin?.end() // print mode reads stdin as extra prompt input until EOF
+    out = (await run).stdout
+    const usage = parseUsageReport(out)
+    if (usage) return usage
+  } catch (err) {
+    out = String(err)
+  }
+  if (retry > 0) return fetchUsage(configDir, retry - 1)
+  console.warn(`[usage] no /usage report for ${configDir}: ${out.trim().slice(0, 200)}`)
+  return null
 }
 
 /** CLI args for launching a session's claude process. model/effort/mode are all

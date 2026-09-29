@@ -27,12 +27,13 @@
 
 ## 開發
 
-需求：macOS、Node 22、pnpm、已安裝 `claude` CLI。
+需求：macOS、Node 22.18+、pnpm、已安裝 `claude` CLI。
 
 ```bash
 pnpm install     # postinstall 會把 node-pty 重建成 Electron 的 ABI
 pnpm dev         # 開發模式（資料目錄 ~/.agent-s-dev，與正式版的 ~/.agent-s 分開）
 pnpm typecheck
+pnpm test        # 單元測試（Node 內建 test runner）
 ```
 
 ## 打包與發佈
@@ -46,5 +47,5 @@ pnpm release --full --notes "…"  # 換過 Electron／node-pty 時必須用，�
 目前的發佈版未經 Developer ID 簽名與公證，在別台 Mac 第一次開要右鍵 →「打開」。細節見 `.claude/skills/release/SKILL.md`。
 
 ## 已知限制
-- 閒置帳號的用量靠定期（每 15 分鐘，以及打開設定時）在本機跑一次 claude 讀 `/usage`；執行中的 session 由 statusline 即時回報。各模型（如 Fable）的窗口只有前者有。
+- 閒置帳號的用量靠定期（每 15 分鐘，以及打開設定時）跑 `claude -p /usage` 取得；執行中的 session 由 statusline 即時回報。各模型（如 Fable）的窗口只有前者有。
 - 限額橫幅、信任提示等偵測依賴 CLI 的畫面文字，CLI 改版可能需要跟著調整。

@@ -35,7 +35,7 @@ function emptyUsage(): AccountUsage {
 }
 
 /** "fable" | "opus" | "sonnet" | … from a model id or display name — the key
- *  the /usage panel's per-model windows are matched on ("claude-fable-5-1[1m]"
+ *  the /usage report's per-model windows are matched on ("claude-fable-5-1[1m]"
  *  → fable, "Opus 5 (1M context)" → opus, "Current week (Fable)" → fable). */
 export function modelFamily(model: string | null | undefined): string | null {
   const m = /^(?:claude-)?([a-z]+)/i.exec((model ?? '').trim())
@@ -45,10 +45,11 @@ export function modelFamily(model: string | null | undefined): string | null {
 export class AccountManager {
   /** in-progress `claude auth login` processes, by config dir (ptys hold the process) */
   private logins = new Set<string>()
-  /** config dirs with a /usage probe already in flight — panel-open, the
-   *  periodic refresh and limit detection can overlap; one probe is enough */
+  /** config dirs with a /usage probe already in flight — the accounts panel
+   *  opening, the periodic refresh and limit detection can overlap; one probe
+   *  is enough */
   private probing = new Set<string>()
-  /** epoch ms of the last completed panel probe per account (statusline
+  /** epoch ms of the last completed /usage probe per account (statusline
    *  patches keep usage.updatedAt moving, so freshness of the per-model numbers
    *  needs its own clock) */
   private probedAt = new Map<string, number>()
@@ -186,14 +187,13 @@ export class AccountManager {
     this.probing.add(configDir)
     this.onChange() // usageRefreshing → the panel shows a spinner instead of stale-looking numbers
     try {
-      const usage = await fetchUsage(configDir) // best-effort (scrapes claude /usage)
-      // Full replace, but NEVER let a routine scrape lift a live banner-set park:
+      const usage = await fetchUsage(configDir) // best-effort (claude -p /usage)
+      // Full replace, but NEVER let a routine probe lift a live banner-set park:
       // markRateLimited() itself kicks a probe, and a per-model/Opus limit fires a
-      // banner while the panel still reads < 100%. Clearing the park here bounced
+      // banner while /usage still reads < 100%. Clearing the park here bounced
       // the session straight back onto the limited account — an endless switch
       // loop. The park expires on its own at limitedUntil (the window reset).
-      if (usage) this.update(configDir, { usage: { ...usage, ...this.livePark(configDir) } })
-      else console.warn(`[usage] probe returned nothing for ${configDir} — keeping the previous numbers`)
+      if (usage) this.update(configDir, { usage: { ...usage, ...this.livePark(configDir) } }) // else keep the previous numbers
     } finally {
       this.probedAt.set(configDir, Date.now()) // the attempt counts: a failing account is retried per maxAgeMs, not per turn
       this.probing.delete(configDir)
@@ -202,7 +202,7 @@ export class AccountManager {
   }
 
   /** Probe unless a probe landed within maxAgeMs — the per-model (Fable)
-   *  windows only ever come from the panel, so accounts in active use are
+   *  windows only ever come from /usage, so accounts in active use are
    *  re-read at turn boundaries rather than waiting for the periodic sweep. */
   refreshUsageIfStale(configDir: string, maxAgeMs: number): void {
     const a = this.get(configDir)
@@ -287,7 +287,7 @@ export class AccountManager {
   /**
    * Utilization (0-100) of the tightest window that binds a session on this
    * model family: the banner park, the 5-hour and weekly windows, and the
-   * family's own weekly window when the panel lists one. Other families'
+   * family's own weekly window when /usage lists one. Other families'
    * windows don't count — a spent Opus window is no reason to keep a Fable
    * session off the account. family=null ("Default" model, not yet reported):
    * only the shared windows bind; the session adopts its real family from the

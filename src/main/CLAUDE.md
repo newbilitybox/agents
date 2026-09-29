@@ -17,7 +17,7 @@
 - 限額 park（`usage.limitedUntil`）是權威值、只由到期清除：用量寫入都要帶回 `livePark()`，提前清掉會讓 auto-switch 無限換帳號
 - session 預設不接 Remote Control（`remoteControlAtStartup: false`＋resume 前 `unbridgeTranscript()`）；要上雲端由使用者在該 session 的設定 JSON 或 `/rc` 打開
 - 標題只來自使用者設定或 CLI 的 `session_name`，不用 prompt 內容
-- 用量只來自本地 `/usage` 探測與 statusline，不打非官方的 `api/oauth/usage`
+- 用量只來自 `claude -p /usage` 探測（`fetchUsage()`）與 statusline，不刮 TUI 面板、不打非官方的 `api/oauth/usage`
 
 ## 坑
 - TUI 用游標定位碼（`\x1b[<col>G`）隔開單字：偵測文字前先 `stripAnsi()`，regex 字間用 `\s*`

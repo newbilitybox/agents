@@ -16,7 +16,7 @@ export class HookServer extends EventEmitter {
   port = 0
 
   /** statuslineText: what claude renders as the session's statusline.
-   *  ⚠️ isTuiReady() keys on the "◉ agents" marker in it — keep them in sync. */
+   *  ⚠️ tuiInputState() keys on the "◉ agents" marker in it — keep them in sync. */
   constructor(private statuslineText: (sessionId: string) => string) {
     super()
     this.server = http.createServer((req, res) => this.handle(req, res))

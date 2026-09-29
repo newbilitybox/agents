@@ -9,7 +9,7 @@ export type LoginStatus = 'unknown' | 'logged_out' | 'logged_in' | 'expired'
 
 /**
  * Percent scale 0-100, matching both sources: statusline
- * `rate_limits.*.used_percentage` and claude's own /usage panel.
+ * `rate_limits.*.used_percentage` and claude's own /usage report.
  */
 export interface AccountUsage {
   /** % used of the current (5-hour) window */
@@ -20,7 +20,7 @@ export interface AccountUsage {
   resetsAt: number | null
   /** epoch ms when the weekly window resets */
   weeklyResetsAt: number | null
-  /** per-model weekly windows (e.g. Fable), from the /usage panel probe only */
+  /** per-model weekly windows (e.g. Fable), from the /usage probe only */
   weeklyModels: { name: string; percent: number; resetsAt: number | null }[]
   /** claude showed a "limit hit" banner: treat the account as exhausted until
    *  this time (the window reset, or +30min when unknown). Authoritative — a
