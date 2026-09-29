@@ -1,5 +1,4 @@
 allowBuilds:
-  electron: true
   esbuild: true
   node-pty: true
   # Windows-only, not needed for a mac build

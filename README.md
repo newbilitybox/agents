@@ -31,7 +31,7 @@
 需求：macOS、Node 22.18+、pnpm、已安裝 `claude` CLI。
 
 ```bash
-pnpm install     # postinstall 會把 node-pty 重建成 Electron 的 ABI
+pnpm install     # postinstall 會下載 Electron 執行檔，並把 node-pty 重建成 Electron 的 ABI
 pnpm dev         # 開發模式（資料目錄 ~/.agent-s-dev，與正式版的 ~/.agent-s 分開）
 pnpm typecheck
 pnpm test        # 單元測試（Node 內建 test runner）

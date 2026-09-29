@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node --test 'src/**/*.test.ts'",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "postinstall": "electron-rebuild -f -w node-pty",
+    "postinstall": "install-electron && electron-rebuild -f -w node-pty",
     "start": "electron-vite preview",
     "package": "electron-vite build && electron-builder --mac",
     "release": "[ -f .env ] && . ./.env; node scripts/release.mjs"
