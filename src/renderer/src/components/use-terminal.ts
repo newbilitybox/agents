@@ -13,8 +13,9 @@ const THEME = {
 
 /**
  * Mounts an xterm bound to a session's pty stream. Hydrates from the main
- * process ring buffer, then follows live chunks (deduped via `end` offsets).
- * interactive=true additionally wires keyboard input and drives pty resize.
+ * process ring buffer, then follows live chunks (deduped via `end` offsets),
+ * and sizes the pty to itself. interactive=true additionally wires keyboard
+ * input.
  */
 export function useTerminal(
   sessionId: string,
@@ -96,27 +97,24 @@ export function useTerminal(
       queue.length = 0
     })
 
-    let disposeInput: { dispose(): void } | undefined
-    let observer: ResizeObserver | undefined
-    if (interactive) {
-      disposeInput = term.onData((data) => void window.api.ptyWrite(sessionId, data))
-      const applyFit = (): void => {
-        fit.fit()
-        if (term.cols && term.rows) void window.api.ptyResize(sessionId, term.cols, term.rows)
-      }
-      observer = new ResizeObserver(applyFit)
-      observer.observe(el)
-      applyFit()
-      // don't steal focus from the chat input on activate — click the terminal to type
-    } else {
+    // don't steal focus from the chat input on activate — click the terminal to type
+    const disposeInput = interactive ? term.onData((data) => void window.api.ptyWrite(sessionId, data)) : undefined
+    // Preview or not, a mounted terminal is its session's only view (a popped-out
+    // session's card mounts none), so it sets the pty size: a card left at the
+    // pop-out window's width drew claude's wider frames as garbage.
+    const applyFit = (): void => {
       fit.fit()
+      if (term.cols && term.rows) void window.api.ptyResize(sessionId, term.cols, term.rows)
     }
+    const observer = new ResizeObserver(applyFit)
+    observer.observe(el)
+    applyFit()
 
     return () => {
       unsubscribe()
       clearTimeout(previewTimer)
       disposeInput?.dispose()
-      observer?.disconnect()
+      observer.disconnect()
       dropWebgl() // must go before term.dispose(), and never twice
       try {
         term.dispose()

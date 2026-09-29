@@ -21,6 +21,8 @@ const XTVERSION_REPLY = '\x1bP>|xterm.js(5.5.0)\x1b\\'
 // partial ones. 5ms is imperceptible on echo but spans a full redraw burst.
 const FLUSH_MS = 5
 const FLUSH_MAX = 65_536
+/** until a terminal mounts and reports its real size */
+const DEFAULT_SIZE = { cols: 100, rows: 30 }
 
 interface Entry {
   proc: pty.IPty
@@ -41,6 +43,10 @@ export class PtyManager extends EventEmitter {
    *  must continue the offset; resetting to 0 would make every already-mounted
    *  terminal silently discard the new process's output */
   private lastEnd = new Map<string, number>()
+  /** the size the id's terminal last asked for, also carried across respawns:
+   *  a restarted or account-switched claude must come up at the size that
+   *  shows it, not a default the mounted terminal never re-sends */
+  private lastSize = new Map<string, { cols: number; rows: number }>()
 
   spawn(
     id: string,
@@ -48,8 +54,7 @@ export class PtyManager extends EventEmitter {
     args: string[],
     opts: { cwd: string; env: Record<string, string> }
   ): void {
-    const cols = 100
-    const rows = 30
+    const { cols, rows } = this.lastSize.get(id) ?? DEFAULT_SIZE
     const proc = pty.spawn(file, args, {
       name: 'xterm-256color',
       cols,
@@ -103,7 +108,7 @@ export class PtyManager extends EventEmitter {
 
   size(id: string): { cols: number; rows: number } {
     const e = this.entries.get(id)
-    return e ? { cols: e.cols, rows: e.rows } : { cols: 100, rows: 30 }
+    return e ? { cols: e.cols, rows: e.rows } : (this.lastSize.get(id) ?? DEFAULT_SIZE)
   }
 
   write(id: string, data: string): void {
@@ -124,6 +129,7 @@ export class PtyManager extends EventEmitter {
   }
 
   resize(id: string, cols: number, rows: number): void {
+    this.lastSize.set(id, { cols, rows }) // an exited session respawns at it
     const e = this.entries.get(id)
     if (!e || (e.cols === cols && e.rows === rows)) return
     e.cols = cols
@@ -147,9 +153,10 @@ export class PtyManager extends EventEmitter {
     this.entries.get(id)?.proc.kill(signal)
   }
 
-  /** Session removed for good — drop its stream offset too. */
+  /** Session removed for good — drop its stream offset and size too. */
   forget(id: string): void {
     this.lastEnd.delete(id)
+    this.lastSize.delete(id)
   }
 
   /** Kill and resolve once the process has actually exited (before moving its files). */
