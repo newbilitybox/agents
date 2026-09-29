@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button'
 import { useApp } from '@/stores/app'
 
 /**
- * Auxiliary input for a session. Enter submits; Shift+Enter and Cmd+Enter insert
- * a newline. Dropped/pasted files and pasted images are handled window-wide in the
- * preload (works from the terminal too) and land here as paths via the store draft,
- * which is keyed by session so it survives this input being unmounted.
+ * Auxiliary input for a session. Enter submits (except an IME's Enter that ends a
+ * composition); Shift+Enter and Cmd+Enter insert a newline. Dropped/pasted files
+ * and pasted images are handled window-wide in the preload (works from the
+ * terminal too) and land here as paths via the store draft, which is keyed by
+ * session so it survives this input being unmounted.
  */
 export function ChatInput({ sessionId, autoFocus }: { sessionId: string; autoFocus?: boolean }) {
   const { t } = useTranslation()
@@ -49,7 +50,9 @@ export function ChatInput({ sessionId, autoFocus }: { sessionId: string; autoFoc
           persist(e.target.value)
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
+          // an IME's Enter only commits its composition (e.g. the raw letters
+          // typed in a Chinese IME) — Chromium reports it as key 'Enter'
+          if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             send()
           }
