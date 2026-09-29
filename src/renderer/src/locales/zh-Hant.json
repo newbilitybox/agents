@@ -27,6 +27,8 @@
     "accountAuto": "自動選擇（weekly 最快重置、且此模型仍有餘量的帳號）",
     "autoSwitch": "達到用量上限時自動切換帳號",
     "autoSwitchHint": "換到還有餘量的帳號接著跑；不勾選時只發通知，由 Claude Code 自己等到額度重置後繼續。",
+    "advanced": "進階設定",
+    "advancedSet": "已設定 {{count}} 項",
     "launchArgs": "啟動參數",
     "launchArgsHint": "以空白分隔，例如 --model opus。改動下次啟動生效。",
     "systemPromptFiles": "系統提示附加檔案",

@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FilePlus2, FolderOpen, FolderPlus } from 'lucide-react'
+import { ChevronRight, FilePlus2, FolderOpen, FolderPlus } from 'lucide-react'
 import type { Account, ModelOption, Session } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -153,6 +154,9 @@ export function SessionForm({
   const accounts = useApp((s) => s.accounts)
   const knownModels = useApp((s) => s.knownModels)
   const selected = accounts.find((a) => a.configDir === values.accountDir)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const jsonValid = settingsJsonValid(values.settingsJson)
+  const advancedSet = [values.systemPromptFiles, values.addDirs, values.settingsJson, values.launchArgs].filter((v) => v.trim()).length
   const appendLines = (field: 'systemPromptFiles' | 'addDirs', paths: string[]): void => {
     if (!paths.length) return
     onChange({ [field]: [values[field].trimEnd(), ...paths].filter(Boolean).join('\n') })
@@ -294,76 +298,87 @@ export function SessionForm({
         </label>
         <p className="text-muted-foreground text-xs">{t('session.autoSwitchHint')}</p>
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="f-prompt-files">{t('session.systemPromptFiles')}</Label>
-        <div className="flex gap-2">
-          <Textarea
-            id="f-prompt-files"
-            rows={1}
-            className="min-h-9"
-            value={values.systemPromptFiles}
-            onChange={(e) => onChange({ systemPromptFiles: e.target.value })}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label={t('common.browse')}
-            onClick={() => void window.api.pickFiles().then((p) => appendLines('systemPromptFiles', p))}
-          >
-            <FilePlus2 />
-          </Button>
+      {/* rarely needed: collapsed by default, forced open while the JSON is
+          invalid (Save is disabled then, and the reason sits in here) */}
+      <details className="group" open={advancedOpen || !jsonValid} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
+        <summary className="text-muted-foreground hover:text-foreground flex w-fit cursor-pointer list-none items-center gap-1 text-sm select-none [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
+          {t('session.advanced')}
+          {advancedSet > 0 && <span className="text-xs"> · {t('session.advancedSet', { count: advancedSet })}</span>}
+        </summary>
+        <div className="mt-4 grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="f-prompt-files">{t('session.systemPromptFiles')}</Label>
+            <div className="flex gap-2">
+              <Textarea
+                id="f-prompt-files"
+                rows={1}
+                className="min-h-9"
+                value={values.systemPromptFiles}
+                onChange={(e) => onChange({ systemPromptFiles: e.target.value })}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={t('common.browse')}
+                onClick={() => void window.api.pickFiles().then((p) => appendLines('systemPromptFiles', p))}
+              >
+                <FilePlus2 />
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">{t('session.systemPromptFilesHint')}</p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="f-add-dirs">{t('session.addDirs')}</Label>
+            <div className="flex gap-2">
+              <Textarea
+                id="f-add-dirs"
+                rows={1}
+                className="min-h-9"
+                value={values.addDirs}
+                onChange={(e) => onChange({ addDirs: e.target.value })}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={t('common.browse')}
+                onClick={() => void window.api.pickDirectory().then((p) => appendLines('addDirs', p ? [p] : []))}
+              >
+                <FolderPlus />
+              </Button>
+            </div>
+            <label className="text-muted-foreground flex w-fit cursor-pointer items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="accent-primary"
+                checked={values.addDirClaudeMd}
+                onChange={(e) => onChange({ addDirClaudeMd: e.target.checked })}
+              />
+              {t('session.addDirsClaudeMd')}
+            </label>
+            <p className="text-muted-foreground text-xs">{t('session.addDirsHint')}</p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="f-settings">{t('session.settingsJson')}</Label>
+            <Textarea
+              id="f-settings"
+              rows={2}
+              value={values.settingsJson}
+              aria-invalid={!jsonValid}
+              onChange={(e) => onChange({ settingsJson: e.target.value })}
+              placeholder={'{"includeCoAuthoredBy": false}'}
+            />
+            <p className={jsonValid ? 'text-muted-foreground text-xs' : 'text-destructive text-xs'}>
+              {jsonValid ? t('session.settingsJsonHint') : t('session.settingsJsonInvalid')}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="f-args">{t('session.launchArgs')}</Label>
+            <LaunchArgsInput id="f-args" value={values.launchArgs} onChange={(v) => onChange({ launchArgs: v })} />
+            <p className="text-muted-foreground text-xs">{t('session.launchArgsHint')}</p>
+          </div>
         </div>
-        <p className="text-muted-foreground text-xs">{t('session.systemPromptFilesHint')}</p>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="f-add-dirs">{t('session.addDirs')}</Label>
-        <div className="flex gap-2">
-          <Textarea
-            id="f-add-dirs"
-            rows={1}
-            className="min-h-9"
-            value={values.addDirs}
-            onChange={(e) => onChange({ addDirs: e.target.value })}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label={t('common.browse')}
-            onClick={() => void window.api.pickDirectory().then((p) => appendLines('addDirs', p ? [p] : []))}
-          >
-            <FolderPlus />
-          </Button>
-        </div>
-        <label className="text-muted-foreground flex w-fit cursor-pointer items-center gap-2 text-xs">
-          <input
-            type="checkbox"
-            className="accent-primary"
-            checked={values.addDirClaudeMd}
-            onChange={(e) => onChange({ addDirClaudeMd: e.target.checked })}
-          />
-          {t('session.addDirsClaudeMd')}
-        </label>
-        <p className="text-muted-foreground text-xs">{t('session.addDirsHint')}</p>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="f-settings">{t('session.settingsJson')}</Label>
-        <Textarea
-          id="f-settings"
-          rows={2}
-          value={values.settingsJson}
-          aria-invalid={!settingsJsonValid(values.settingsJson)}
-          onChange={(e) => onChange({ settingsJson: e.target.value })}
-          placeholder={'{"includeCoAuthoredBy": false}'}
-        />
-        <p className={settingsJsonValid(values.settingsJson) ? 'text-muted-foreground text-xs' : 'text-destructive text-xs'}>
-          {settingsJsonValid(values.settingsJson) ? t('session.settingsJsonHint') : t('session.settingsJsonInvalid')}
-        </p>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="f-args">{t('session.launchArgs')}</Label>
-        <LaunchArgsInput id="f-args" value={values.launchArgs} onChange={(v) => onChange({ launchArgs: v })} />
-        <p className="text-muted-foreground text-xs">{t('session.launchArgsHint')}</p>
-      </div>
+      </details>
     </div>
   )
 }

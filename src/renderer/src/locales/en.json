@@ -27,6 +27,8 @@
     "accountAuto": "Auto-pick (soonest weekly reset, with headroom for this model)",
     "autoSwitch": "Switch accounts when the usage limit is reached",
     "autoSwitchHint": "Moves to an account with headroom and carries on. Unchecked, you only get a notification: Claude Code waits for the reset and continues by itself.",
+    "advanced": "Advanced",
+    "advancedSet": "{{count}} set",
     "launchArgs": "Launch args",
     "launchArgsHint": "Space-separated, e.g. --model opus. Applies on next start.",
     "systemPromptFiles": "System prompt files",
