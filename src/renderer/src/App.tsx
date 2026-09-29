@@ -67,9 +67,9 @@ function App() {
 
       <div className="flex min-h-0 flex-1">
         {sessions.length > 0 && <SessionSidebar sessions={sessions} />}
-        <main className="min-h-0 flex-1 overflow-y-auto p-4" onClick={() => setFocused(null)}>
+        <main className="flex min-h-0 flex-1 flex-col" onClick={() => setFocused(null)}>
           {sessions.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
               <p className="text-lg font-medium">{t('sessions.empty')}</p>
               <p className="text-muted-foreground text-sm">{t('sessions.emptyHint')}</p>
               <Button className="mt-2" onClick={() => setNewOpen(true)}>
@@ -79,11 +79,15 @@ function App() {
           ) : (
             <>
               <StateFilter sessions={inFolder} />
-              {visible.length === 0 ? (
-                <p className="text-muted-foreground text-sm">{t('sessions.noMatch')}</p>
-              ) : (
-                <SessionGrid sessions={sortedSessions(visible)} />
-              )}
+              {/* only the grid scrolls, under the fixed chip row. pt-2: the scroller
+                  clips overflow, and the first row's focus/flash rings sit outside the cards */}
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-4">
+                {visible.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">{t('sessions.noMatch')}</p>
+                ) : (
+                  <SessionGrid sessions={sortedSessions(visible)} />
+                )}
+              </div>
             </>
           )}
         </main>

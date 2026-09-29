@@ -26,7 +26,7 @@ export function StateFilter({ sessions }: { sessions: SessionView[] }) {
 
   // clicks here must not bubble to <main>, which would unfocus the active card
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-4 pt-4 pb-2" onClick={(e) => e.stopPropagation()}>
       <button className={chip(stateFilter === null)} onClick={() => setStateFilter(null)}>
         {t('sessions.groupAll')}
         <span className="tabular-nums opacity-70">{sessions.length}</span>
