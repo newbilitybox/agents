@@ -33,6 +33,7 @@ pnpm release --full --notes "…"   # 完整（簽名＋公證，約多幾分鐘
 - 簽名與公證：`codesign --verify --deep --strict --verbose=2 "$APP"`、`spctl -a -vvv -t install "$APP"`（公證通過後為 accepted、source=Notarized Developer ID；未公證是 rejected、Unnotarized Developer ID）。送件狀態：`xcrun notarytool history --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"`；被拒用同樣參數跑 `xcrun notarytool log <submissionId>` 看原因，常見是某個執行檔沒開 hardened runtime 或沒簽到。
 - 熱更之後，簽名 bundle 的 `codesign --verify` 會報 `a sealed resource is missing or invalid`，但 app 照常啟動、原生通知照常（2026-09-29 實測，本機未帶 quarantine 的安裝）。
 - 更新器：`AGENTS_UPDATE_MANIFEST_URL` 指向本地或測試用 manifest；`AGENTS_UPDATE_AUTO=1` 不跳對話框、自動套用後退出（0＝已套用或已最新、2＝失敗、3＝native 不符）；`AGENTS_USER_DATA_DIR` 隔離資料目錄與 single-instance lock。dev（未打包）不檢查更新，除非設了 manifest override。
+- 發佈後幾分鐘內，`releases/latest/download/latest.json`（更新器讀的就是它）的轉址仍被 GitHub 快取在上一版（2026-09-30 發 0.2.31 實測約 2 分 40 秒），已安裝的 app 這段時間也還看不到新版：當下改讀 `releases/download/v<版本>/latest.json` 驗內容，Latest 標記用 `gh api repos/newbilitybox/agents/releases/latest --jq .tag_name` 確認，不必重發。
 - 複製 `.app` 做 e2e 要用 `cp -R`：node 的 `cpSync` 會弄壞 Electron framework 的 symlink（icudtl.dat not found、GPU 起不來）。
 
 ## 憑證與金鑰
