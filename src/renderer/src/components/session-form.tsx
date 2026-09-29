@@ -44,6 +44,8 @@ const modelOptions = (known: ModelOption[], current: string): ModelOption[] => {
  *  one path per line) until submit. */
 export interface SessionFormValues {
   cwd: string
+  /** create only: run in a git worktree of its own */
+  worktree: boolean
   title: string
   /** '' = auto-pick (create only) */
   accountDir: string
@@ -62,6 +64,7 @@ export interface SessionFormValues {
 
 export const emptySessionForm: SessionFormValues = {
   cwd: '',
+  worktree: false,
   title: '',
   accountDir: '',
   autoSwitch: true,
@@ -78,6 +81,7 @@ export const emptySessionForm: SessionFormValues = {
 
 export const sessionFormValues = (s: Session): SessionFormValues => ({
   cwd: s.cwd,
+  worktree: s.worktree !== null,
   title: s.title ?? '',
   accountDir: s.accountDir,
   autoSwitch: s.autoSwitch,
@@ -185,6 +189,17 @@ export function SessionForm({
             </Button>
           )}
         </div>
+        <label className="text-muted-foreground flex w-fit cursor-pointer items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            className="accent-primary"
+            checked={values.worktree}
+            disabled={variant === 'edit'} // the conversation already lives where it started
+            onChange={(e) => onChange({ worktree: e.target.checked })}
+          />
+          {t('session.worktree')}
+        </label>
+        <p className="text-muted-foreground text-xs">{t('session.worktreeHint')}</p>
       </div>
       <div className="grid gap-2">
         <Label htmlFor="f-title">{t('session.titleField')}</Label>

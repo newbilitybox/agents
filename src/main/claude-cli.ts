@@ -648,9 +648,12 @@ export function sessionArgs(opts: {
   permissionMode?: string | null
   addDirs?: string[]
   appendSystemPrompt?: string | null
+  /** start in this git worktree (created on first use, re-entered after) */
+  worktree?: string | null
 }): string[] {
   const args = ['--settings', opts.settingsFile]
   if (opts.resumeSessionId) args.push('--resume', opts.resumeSessionId)
+  if (opts.worktree) args.push('--worktree', opts.worktree)
   if (opts.model) args.push('--model', opts.model)
   // the flag only accepts plain levels — ultracode is re-applied via /effort
   if (opts.effort && opts.effort !== 'ultracode') args.push('--effort', opts.effort)

@@ -21,6 +21,8 @@
   },
   "session": {
     "cwd": "工作目录",
+    "worktree": "在独立的 git worktree 中运行",
+    "worktreeHint": "等同 claude --worktree：在 <工作目录>/.claude/worktrees/ 开新分支工作，同一个 repo 的多个 session 互不干扰；换账号、重启都沿用同一个 worktree。只能在创建时选，worktree 不会自动删除。",
     "titleField": "标题",
     "titlePlaceholder": "选填，留空则用 Claude 自动摘要的标题",
     "account": "账号",

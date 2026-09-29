@@ -65,6 +65,8 @@ export interface AppState {
 
 export interface NewSessionInput {
   cwd: string
+  /** run in a git worktree of its own (fixed at creation) */
+  worktree: boolean
   /** empty → auto-pick a logged-in account with the most headroom */
   accountDir: string
   title: string

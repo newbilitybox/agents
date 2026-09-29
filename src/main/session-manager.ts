@@ -213,6 +213,7 @@ export class SessionManager extends EventEmitter {
         addDirClaudeMd: s.addDirClaudeMd ?? false,
         settingsJson: s.settingsJson ?? '',
         cliTitle: s.cliTitle ?? null,
+        worktree: s.worktree ?? null,
         stopOnFallback: s.stopOnFallback ?? false,
         fallbackModel: null,
         lastLimitBanner: s.lastLimitBanner ?? null,
@@ -241,13 +242,15 @@ export class SessionManager extends EventEmitter {
     const accountDir = input.accountDir || this.accounts.pickAccount({ model: input.modelId })?.configDir
     if (!accountDir) throw new Error('no logged-in account available')
     pushRecentLaunchArgs(this.store, input.launchArgs)
+    const id = randomUUID()
     const session: Session = {
-      id: randomUUID(),
+      id,
       title: input.title.trim() || null,
       cliTitle: null,
       claudeSessionId: null,
       transcriptPath: null,
       cwd: input.cwd,
+      worktree: input.worktree ? `agents-${id.slice(0, 8)}` : null,
       accountDir,
       autoSwitch: input.autoSwitch,
       launchArgs: input.launchArgs.trim() ? input.launchArgs.trim().split(/\s+/) : [],
@@ -541,7 +544,11 @@ export class SessionManager extends EventEmitter {
       effort: session.effort === 'ultracode' ? null : session.effort,
       permissionMode: session.mode,
       addDirs: session.addDirs ?? [],
-      appendSystemPrompt: readSystemPrompt(session.systemPromptFiles ?? [])
+      appendSystemPrompt: readSystemPrompt(session.systemPromptFiles ?? []),
+      // a fresh start creates the worktree, or re-enters it under the same name
+      // (verified 2.1.284); --resume finds the transcript and goes back into
+      // the worktree by itself — from the repo, on whichever account
+      worktree: opts.resume ? null : session.worktree
     })
     // peer discovery is scoped to CLAUDE_CONFIG_DIR — share one registry so
     // sessions can message each other across accounts, not just within one

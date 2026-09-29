@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { lstatSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectRateLimit, markOnboarded, parseUsageReport } from './claude-cli.ts'
+import { detectRateLimit, markOnboarded, parseUsageReport, sessionArgs } from './claude-cli.ts'
 
 const at = (y: number, mon: number, d: number, h: number, min = 0): number => new Date(y, mon - 1, d, h, min).getTime()
 const NOW = new Date(2026, 8, 29, 9, 33) // Sep 29 2026, 09:33 local
@@ -114,4 +114,9 @@ test('the same hit keeps its identity across repaints and --resume replays', () 
 test('neither the fast-mode cooldown nor the CLI\'s own auto-continue notice is a limit hit', () => {
   assert.equal(detectRateLimit("You've hit your fast limit · resets in 3m", NOW), null)
   assert.equal(detectRateLimit('Usage limit reached · continuing automatically at 9:30am · esc to cancel', NOW), null)
+})
+
+test('a worktree session starts with --worktree; a resume leaves the flag out', () => {
+  assert.deepEqual(sessionArgs({ settingsFile: 's.json', launchArgs: '', worktree: 'agents-1a2b3c4d' }), ['--settings', 's.json', '--worktree', 'agents-1a2b3c4d'])
+  assert.deepEqual(sessionArgs({ settingsFile: 's.json', launchArgs: '', resumeSessionId: 'sid', worktree: null }), ['--settings', 's.json', '--resume', 'sid'])
 })

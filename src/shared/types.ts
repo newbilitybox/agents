@@ -84,6 +84,9 @@ export interface Session {
   /** full path to the session jsonl (from SessionStart hook); moved on account switch */
   transcriptPath: string | null
   cwd: string
+  /** the git worktree the session works in (`claude --worktree <name>`, under
+   *  <cwd>/.claude/worktrees/, branch worktree-<name>), or null for cwd itself */
+  worktree: string | null
   /** references Account.configDir */
   accountDir: string
   /** on a usage limit, move to another logged-in account with headroom and

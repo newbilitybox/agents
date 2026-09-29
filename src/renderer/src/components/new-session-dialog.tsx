@@ -23,6 +23,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     try {
       await window.api.createSession({
         cwd: values.cwd,
+        worktree: values.worktree,
         title: values.title,
         accountDir: values.accountDir,
         autoSwitch: values.autoSwitch,

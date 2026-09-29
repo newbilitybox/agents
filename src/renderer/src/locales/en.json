@@ -21,6 +21,8 @@
   },
   "session": {
     "cwd": "Working directory",
+    "worktree": "Run in a git worktree of its own",
+    "worktreeHint": "Same as claude --worktree: works on a new branch under <working directory>/.claude/worktrees/, so sessions on one repo never step on each other; account switches and restarts keep the same worktree. Only at creation; the worktree is not removed automatically.",
     "titleField": "Title",
     "titlePlaceholder": "Optional — otherwise Claude's own summary title",
     "account": "Account",

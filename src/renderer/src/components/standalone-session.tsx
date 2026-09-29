@@ -44,6 +44,7 @@ export function StandaloneSession({ sessionId }: { sessionId: string }) {
           </div>
           <div className="text-muted-foreground truncate">
             {t(`session.state.${session.state}`)} · {session.cwd}
+            {session.worktree && ` ⎇ ${session.worktree}`}
           </div>
         </div>
         <div className="text-muted-foreground min-w-0">

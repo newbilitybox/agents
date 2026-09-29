@@ -91,7 +91,10 @@ export function SessionCard({ session }: { session: SessionView }) {
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              <div>{session.cwd}</div>
+              <div>
+                {session.cwd}
+                {session.worktree && ` ⎇ ${session.worktree}`}
+              </div>
               <div>{t(`session.state.${session.state}`)}</div>
               {account && <UsageLines usage={account.usage} />}
             </TooltipContent>
