@@ -16,6 +16,7 @@ app 的偵測與旗標都釘在 CLI 的實作細節上（集中在 `src/main/cla
 - 本地 slash command 可以直接跑、不呼叫模型：`claude -p "/usage" --no-session-persistence`（`/cost` 等同理）。不加 `--no-session-persistence` 會在該帳號的 `projects/<cwd 編碼>/` 留下 transcript。
 - 互動畫面用 pty 實測：`python3 .claude/skills/cli-behavior/pty_run.py <cwd> <configDir> <輸出檔> [claude 參數…] [-- 依序送出的輸入…]`。它等 TUI 就緒才送輸入、自動過信任框，把原始輸出寫進檔案。
 - 新帳號的畫面（onboarding、信任框、未登入）用空的 `CLAUDE_CONFIG_DIR`（在 scratchpad 新建目錄）就看得到，不需要憑證。
+- 看 hook 的 payload（`transcript_path`、`cwd`、`source`…）：用 `--settings` 給一個 hook，指令寫 `cat > <scratchpad>/payload.json`，再用 `pty_run.py` 跑一次。例：resume worktree session 時 SessionStart 報的是 repo 根的路徑，就是這樣查到的。
 - 在 claude session 裡跑 claude 要剝掉 `CLAUDE*`／`ANTHROPIC*`／`AI_AGENT` 等環境變數，否則會被當成 nested session 立刻退出（`pty_run.py` 已處理）。
 
 ## 別污染真實帳號
