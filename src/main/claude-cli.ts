@@ -361,25 +361,67 @@ export function stripAnsi(text: string): string {
     .replace(/\x1b[()][AB0]/g, '')
 }
 
+/** where a banner or report states its reset: "resets 9:30am",
+ *  "resets Oct 1 at 9pm", "resets Jan 2, 2027 at 7am" */
+const RESETS = /resets\s*((?:[A-Za-z]{3}\s*\d{1,2}(?:,\s*\d{4})?\s*at\s*)?\d{1,2}(?::\d{2})?\s*[ap]m)/i
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
 /**
- * Whether a chunk of pty output indicates the account hit a usage limit.
- * 2.1.228 composes banners as `You've hit your <window> limit` (window ∈
- * session/weekly/Opus/Sonnet/Fable 5/usage credit) plus out-of-credit variants;
- * "fast limit" is only the fast-mode cooldown (the session keeps working on the
- * normal lane) and must NOT match. Older wordings kept for older CLIs. Wording
- * lives here so a CLI change is a one-line fix.
+ * A reset as the CLI prints it, in local time: dated ("Sep 29 at 1:30pm",
+ * "Jan 2, 2027 at 7am" — the year only when it isn't this one) or, when it is
+ * within a day, time-only ("9:30am"): the next such time — unless that time
+ * passed only just now, which means the window is simply over.
  */
-export function detectRateLimit(text: string): { window: string; banner: string } | null {
-  const s = stripAnsi(text)
-  const m =
-    /You.?ve\s*(?:hit|reached)\s*your\s*(?!\s*fast)([\w .$'-]{2,30}?)\s*limit[^\n]{0,60}/i.exec(s) ??
-    /(You.?re\s*out\s*of\s*(?:usage\s*credits|extra\s*usage)|Your\s*org\s*is\s*out\s*of\s*usage)[^\n]{0,60}/i.exec(s) ??
-    /(usage\s*limit\s*reached|5-hour\s*limit\s*reached|weekly\s*limit\s*reached|Claude\s*usage\s*limit)[^\n]{0,60}/i.exec(s)
+function parseReset(s: string, now: Date): number | null {
+  const m = /(?:([A-Za-z]{3})\s*(\d{1,2})(?:,\s*(\d{4}))?\s*at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(s)
   if (!m) return null
-  // window: "session" | "weekly" | "opus" | "fable 5" | "usage credit" … (what
-  // markRateLimited parks against); banner: the whole line, so a repaint of the
-  // same notice (scrolling) is told apart from a new one (new reset time)
-  return { window: m[1].replace(/\s+/g, ' ').trim().toLowerCase(), banner: m[0].replace(/\s+/g, ' ').trim() }
+  const hour = (parseInt(m[4], 10) % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0)
+  const minute = m[5] ? parseInt(m[5], 10) : 0
+  if (m[1]) {
+    const month = MONTHS.indexOf(m[1].toLowerCase())
+    if (month < 0) return null
+    return new Date(m[3] ? parseInt(m[3], 10) : now.getFullYear(), month, parseInt(m[2], 10), hour, minute).getTime()
+  }
+  const day = (offset: number): number => new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, hour, minute).getTime()
+  return day(0) >= now.getTime() - 10 * 60_000 ? day(0) : day(1)
+}
+
+export interface LimitHit {
+  /** as the banner names it: "session" | "weekly" | "opus" | "fable 5" |
+   *  "monthly spend" | "usage credits" … — what markRateLimited parks */
+  window: string
+  /** the reset the banner states (epoch ms), if it states one */
+  resetsAt: number | null
+  /** window + reset as printed. The same hit reads the same on every repaint
+   *  and --resume replay, whatever else shares its line (the old identity,
+   *  the whole line, differed between renders and parked healthy accounts). */
+  key: string
+  /** the banner line — persisted as Session.lastLimitBanner */
+  banner: string
+}
+
+/**
+ * Whether a chunk of pty output shows the account hitting a usage limit.
+ * Current wordings (verified 2.1.284): `You've hit your <window> limit ·
+ * resets <when>` (window ∈ session/weekly/Opus/Fable 5/monthly spend…), `You've
+ * reached your Fable limit.`, `You're out of usage credits`. "fast limit" is
+ * only the fast-mode cooldown (the session keeps working on the normal lane)
+ * and must NOT match; neither must the CLI's own "Usage limit reached ·
+ * continuing automatically" notice that follows a banner. Wording lives here
+ * so a CLI change is a one-line fix.
+ */
+export function detectRateLimit(text: string, now = new Date()): LimitHit | null {
+  const s = stripAnsi(text)
+  const hit = /You.?ve\s*(?:hit|reached)\s*your\s*(?!\s*fast)([\w .$'-]{2,30}?)\s*limit[^\n]{0,60}/i.exec(s)
+  const m = hit ?? /(?:You.?re\s*out\s*of\s*(?:usage\s*credits|extra\s*usage)|Your\s*org\s*is\s*out\s*of\s*usage)[^\n]{0,60}/i.exec(s)
+  if (!m) return null
+  const window = hit ? hit[1].replace(/\s+/g, ' ').trim().toLowerCase() : 'usage credits'
+  const banner = m[0].replace(/\s+/g, ' ').trim()
+  const reset = RESETS.exec(banner)?.[1]
+  // spaces dropped: cursor moves stand in for them in some renders, not others
+  const key = `${window}|${reset ?? ''}`.replace(/\s+/g, '').toLowerCase()
+  return { window, resetsAt: reset ? parseReset(reset, now) : null, key, banner }
 }
 
 /**
@@ -532,20 +574,6 @@ export function extractLoginUrl(text: string): string | null {
 
 // ── usage (claude's own /usage report) ──────────────────────────────────────
 
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-
-/** A dated reset — "Sep 29 at 1:30pm", "Jan 2, 2027 at 7am" — as epoch ms. The
- *  CLI formats in the machine's zone and adds the year only when it differs
- *  from the current one. */
-function parseResetDate(s: string, now: Date): number | null {
-  const m = /([A-Za-z]{3})\s*(\d{1,2})(?:,\s*(\d{4}))?\s*at\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(s)
-  const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1
-  if (!m || month < 0) return null
-  const hour = (parseInt(m[4], 10) % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0)
-  const year = m[3] ? parseInt(m[3], 10) : now.getFullYear()
-  return new Date(year, month, parseInt(m[2], 10), hour, m[5] ? parseInt(m[5], 10) : 0).getTime()
-}
-
 /**
  * Parse the report `claude -p /usage` prints (verified 2.1.284):
  *   Current session: 28% used · resets Sep 29 at 1:30pm (Asia/Tokyo)
@@ -561,7 +589,7 @@ export function parseUsageReport(text: string, now = new Date()): AccountUsage |
   let weekly: Window | null = null
   const models: AccountUsage['weeklyModels'] = []
   for (const m of text.matchAll(/^Current (session|week \((.+?)\)): (\d{1,3})% used(?: · resets (.+))?$/gm)) {
-    const w: Window = { percent: parseInt(m[3], 10), resetsAt: m[4] ? parseResetDate(m[4], now) : null }
+    const w: Window = { percent: parseInt(m[3], 10), resetsAt: m[4] ? parseReset(m[4], now) : null }
     if (m[1] === 'session') session = w
     else if (m[2] === 'all models') weekly = w
     else models.push({ name: m[2].replace(/ only$/, ''), ...w }) // "(Sonnet only)" → "Sonnet"

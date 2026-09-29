@@ -28,7 +28,8 @@ import {
   stripAnsi,
   tuiInputState,
   unbridgeTranscript,
-  writeSessionSettings
+  writeSessionSettings,
+  type LimitHit
 } from './claude-cli'
 
 /** background_tasks entries whose completion wakes the session (a task
@@ -52,7 +53,8 @@ const WAKING_TASK_TYPES = new Set([
 ])
 /** Notification hook types that mean the TUI is waiting on the user. Others:
  *  idle_prompt (claude has been sitting at the prompt), auth_success,
- *  agent_completed (Stop covers it), push_notification (relayed as-is). */
+ *  agent_completed (Stop covers it), push_notification (relayed as-is),
+ *  quota_auto_resume_* (the CLI waiting out a usage limit by itself). */
 const ATTENTION_NOTIFICATIONS = new Set([
   'permission_prompt',
   'elicitation_dialog',
@@ -655,15 +657,15 @@ export class SessionManager extends EventEmitter {
     const limit = detectRateLimit(buf)
     if (limit && session.state !== 'rate-limited') {
       // The CLI records the banner in the transcript, so every --resume (account
-      // switch, app restart) REPLAYS the last one verbatim — acting on a replay
-      // parked each healthy account in turn until none was left (live-hit).
-      // Remember the text (persisted: the replay outlives process and app run)
-      // so repaints stay inert; only a DIFFERENT banner painted mid-turn in
-      // fresh output is a new live hit — replays arrive outside a running turn.
-      const isNew = session.lastLimitBanner !== limit.banner
+      // switch, app restart) REPLAYS the last one — acting on a replay parked
+      // each healthy account in turn until none was left (live-hit). Remember
+      // the hit (persisted: the replay outlives process and app run) so repaints
+      // stay inert; only a hit naming a different window or reset, painted
+      // mid-turn in fresh output, is new — replays arrive outside a running turn.
+      const isNew = detectRateLimit(session.lastLimitBanner ?? '')?.key !== limit.key
       if (isNew) this.update(id, { lastLimitBanner: limit.banner })
       if (session.state === 'running' && detectRateLimit(data)) {
-        if (isNew) void this.handleRateLimit(id, limit.window)
+        if (isNew) void this.handleRateLimit(id, limit)
         else {
           // the same notice again, freshly painted, in a new turn: a second hit
           // of the still-parked window (the CLI refused the turn) — not a scroll
@@ -676,13 +678,13 @@ export class SessionManager extends EventEmitter {
   }
 
   /** React to a session hitting its usage limit per its configured rule. */
-  private async handleRateLimit(id: string, window: string): Promise<void> {
+  private async handleRateLimit(id: string, hit: LimitHit): Promise<void> {
     const session = this.get(id)
     if (!session) return
     this.setState(id, 'rate-limited')
     // the banner is ground truth — keep this account out of the rotation until
     // that window resets (and probe its real numbers in the background)
-    this.accounts.markRateLimited(session.accountDir, window)
+    this.accounts.markRateLimited(session.accountDir, hit)
 
     switch (session.limitRule) {
       case 'manual':
@@ -777,6 +779,15 @@ export class SessionManager extends EventEmitter {
         const type = String(payload['notification_type'] ?? '')
         if (!type || ATTENTION_NOTIFICATIONS.has(type)) this.attention(sessionId, snippet(payload['message']))
         else if (type === 'push_notification') this.emit('notify', { id: sessionId, kind: 'attention', detail: snippet(payload['message']) })
+        // the CLI waited out the usage limit and resumed the task itself — the
+        // limited turn's Stop left the card on rate-limited (verified 2.1.284)
+        else if (type === 'quota_auto_resume_fired') {
+          if (session.state === 'rate-limited') this.setState(sessionId, 'running')
+        }
+        // …or it won't: the limit reset but wants an Enter, or it gave up waiting
+        else if (type === 'quota_auto_resume_stale' || type === 'quota_auto_resume_disabled') {
+          this.attention(sessionId, snippet(payload['message']), 'paused')
+        }
         // "Claude is waiting for your input" while we still think it's working
         // and no background agent is pending: the turn ended without a Stop (an
         // interrupt) — it's idle. With agents pending, running is the truth.

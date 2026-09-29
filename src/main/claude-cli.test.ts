@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { lstatSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { markOnboarded, parseUsageReport } from './claude-cli.ts'
+import { detectRateLimit, markOnboarded, parseUsageReport } from './claude-cli.ts'
 
 const at = (y: number, mon: number, d: number, h: number, min = 0): number => new Date(y, mon - 1, d, h, min).getTime()
 const NOW = new Date(2026, 8, 29, 9, 33) // Sep 29 2026, 09:33 local
@@ -80,4 +80,38 @@ test('markOnboarded leaves a profile without a config alone', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agents-test-'))
   markOnboarded(dir)
   assert.throws(() => statSync(join(dir, '.claude.json')))
+})
+
+test('a limit banner parks until the reset it states itself', () => {
+  const hit = detectRateLimit("\x1b[31mYou've hit your session limit · resets 10:30am (Asia/Tokyo)\x1b[0m", NOW)
+  assert.deepEqual(
+    { window: hit?.window, resetsAt: hit?.resetsAt, key: hit?.key },
+    { window: 'session', resetsAt: at(2026, 9, 29, 10, 30), key: 'session|10:30am' }
+  )
+  const weekly = detectRateLimit("You've hit your weekly limit · resets Oct 1 at 9pm (Asia/Tokyo)", NOW)
+  assert.deepEqual([weekly?.window, weekly?.resetsAt], ['weekly', at(2026, 10, 1, 21)])
+  assert.equal(detectRateLimit("You've hit your Fable 5 limit · resets Oct 1 at 9pm", NOW)?.window, 'fable 5')
+  assert.equal(detectRateLimit("You're out of usage credits · resets 9:30am (Asia/Tokyo) · progress saved", NOW)?.window, 'usage credits')
+})
+
+test('a time-only reset is the next such time, unless it has only just passed', () => {
+  const lateNight = new Date(2026, 8, 29, 23, 55)
+  assert.equal(detectRateLimit("You've hit your session limit · resets 12:05am", lateNight)?.resetsAt, at(2026, 9, 30, 0, 5))
+  const justAfter = new Date(2026, 8, 29, 9, 31)
+  assert.equal(detectRateLimit("You've hit your session limit · resets 9:30am", justAfter)?.resetsAt, at(2026, 9, 29, 9, 30))
+})
+
+test('the same hit keeps its identity across repaints and --resume replays', () => {
+  const fresh = detectRateLimit("You've hit your session limit · resets 9:30am (Asia/Tokyo)", NOW)
+  // a replayed copy with the words glued by cursor moves and other text after it
+  // (the banner a 0.2.29 session persisted, verbatim)
+  const replay = detectRateLimit("You'vehityour sessionlimit·resets9:30am(Asia/Tokyo)(errortyperate_limit,HTTP429,reques", NOW)
+  assert.ok(fresh && replay)
+  assert.equal(replay.key, fresh.key)
+  assert.notEqual(detectRateLimit("You've hit your session limit · resets 2:30pm", NOW)?.key, fresh.key)
+})
+
+test('neither the fast-mode cooldown nor the CLI\'s own auto-continue notice is a limit hit', () => {
+  assert.equal(detectRateLimit("You've hit your fast limit · resets in 3m", NOW), null)
+  assert.equal(detectRateLimit('Usage limit reached · continuing automatically at 9:30am · esc to cancel', NOW), null)
 })

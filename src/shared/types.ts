@@ -23,7 +23,8 @@ export interface AccountUsage {
   /** per-model weekly windows (e.g. Fable), from the /usage probe only */
   weeklyModels: { name: string; percent: number; resetsAt: number | null }[]
   /** claude showed a "limit hit" banner: treat the account as exhausted until
-   *  this time (the window reset, or +30min when unknown). Authoritative — a
+   *  this time (the reset the banner states, else the window's known reset,
+   *  else +30min). Authoritative — a
    *  usage probe or statusline must NOT lift it early, only its own expiry does,
    *  or auto-switch bounces the session back onto the still-limited account */
   limitedUntil: number | null
@@ -124,7 +125,8 @@ export interface Session {
   /** the model id the CLI fell back to, while it differs from modelId */
   fallbackModel: string | null
   /** the limit banner last seen — the CLI records it in the transcript, so a
-   *  --resume replays it verbatim; only a different banner is a new limit hit */
+   *  --resume replays it; only a banner naming a different window or reset
+   *  (LimitHit.key) is a new limit hit */
   lastLimitBanner: string | null
 }
 

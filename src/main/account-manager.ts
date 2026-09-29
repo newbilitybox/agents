@@ -6,6 +6,7 @@ import type { Account, AccountUsage } from '../shared/types'
 import type { LoginLinks, LoginResult, NewAccountInput } from '../shared/ipc'
 import type { AppStore } from './store'
 import type { PtyManager } from './pty-manager'
+import type { LimitHit } from './claude-cli'
 import { authStatus, claudeLogout, claudePath, envFor, extractLoginUrl, fetchUsage, markOnboarded, scratchCwd, stripAnsi } from './claude-cli'
 import { logResources } from './resource-log'
 
@@ -256,22 +257,25 @@ export class AccountManager {
     this.update(configDir, { usage: { ...u, ...usage, ...park, updatedAt: Date.now() } })
   }
 
-  /** A session on this account just saw claude's "limit hit" banner for
-   *  `window` ("session" | "weekly" | "fable 5" | "opus" | "usage credit"…).
-   *  Park the account until THAT window resets (a weekly/per-model banner
-   *  parked only until the 5h reset bounced auto-switch back every 5h), or
-   *  briefly when the reset is unknown, so pickAccount can't return to it on
-   *  stale numbers; then probe the real state in the background. */
-  markRateLimited(configDir: string, window: string): void {
+  /** A session on this account just hit a usage limit. Park the account until
+   *  the reset the banner itself states — a park guessed from stored usage
+   *  outlived the limit whenever those numbers were stale — else until that
+   *  window's known reset (a weekly/per-model hit parked only until the 5h
+   *  reset bounced auto-switch back every 5h), else briefly, so pickAccount
+   *  can't return to it on stale numbers; then probe the real state. */
+  markRateLimited(configDir: string, hit: LimitHit): void {
     const account = this.get(configDir)
     if (!account) return
     const u = account.usage
     const now = Date.now()
     const future = (t: number | null | undefined): number | null => (t != null && t > now ? t : null)
+    const { window } = hit
     // a per-model banner ("Opus limit") binds only that family — the account
-    // stays usable for the others; session/weekly/credit banners bind everything
-    const family = /^(session|week|usage|monthly)/.test(window) ? null : modelFamily(window)
+    // stays usable for the others; session/weekly/spend/credit banners bind
+    // everything ("channel's monthly spend" is not a model called "channel")
+    const family = /session|week|usage|monthly|spend|credit/.test(window) ? null : modelFamily(window)
     const limitedUntil =
+      hit.resetsAt ??
       (/^week/.test(window) ? future(u.weeklyResetsAt) : null) ??
       (family ? future(u.weeklyModels.find((m) => modelFamily(m.name) === family)?.resetsAt ?? u.weeklyResetsAt) : null) ??
       (/^session/.test(window) ? future(u.resetsAt) : null) ??
