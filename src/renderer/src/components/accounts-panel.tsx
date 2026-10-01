@@ -37,7 +37,7 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
         : timeAgo(checkedAt, i18n.language)
 
   return (
-    <div className="flex items-start gap-3 rounded-md border p-3">
+    <div className="flex min-w-0 items-start gap-3 rounded-md border p-3">
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{account.name}</span>
@@ -119,8 +119,11 @@ export function AccountsPanel() {
   }
 
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-2">
+    // min-w-0 all the way down to the row: a grid item never shrinks below its
+    // content by itself, so one long config path would widen the whole panel
+    // past the dialog instead of being truncated
+    <div className="grid min-w-0 gap-3">
+      <div className="grid min-w-0 gap-2">
         {accounts.map((a) => (
           <AccountRow key={a.configDir} account={a} onEdit={() => setEditing(a)} onLogin={() => setLoggingIn(a)} />
         ))}
