@@ -91,6 +91,17 @@ export async function claudePath(): Promise<string> {
 
 const isDefaultProfile = (configDir: string): boolean => resolve(configDir) === join(homedir(), '.claude')
 
+let tokenSource: (configDir: string) => string | null = () => null
+/**
+ * Where envFor() finds the long-lived token of an account that runs on one
+ * (the account manager owns the vault). Null for every other account: a login
+ * account must keep its own sign-in — the token is inference-only, so running
+ * on it would cost the account its /usage report and Remote Control.
+ */
+export function setTokenSource(source: (configDir: string) => string | null): void {
+  tokenSource = source
+}
+
 /**
  * Env for talking to a specific account. The default profile (~/.claude) must
  * NOT set CLAUDE_CONFIG_DIR: with it set, claude expects .claude.json inside
@@ -99,6 +110,9 @@ const isDefaultProfile = (configDir: string): boolean => resolve(configDir) === 
 export async function envFor(configDir: string): Promise<Record<string, string>> {
   const env = { ...(await loginShellEnv()) }
   if (!isDefaultProfile(configDir)) env['CLAUDE_CONFIG_DIR'] = configDir
+  // a token account's sign-in: it outranks whatever login the dir itself holds
+  const token = tokenSource(configDir)
+  if (token) env['CLAUDE_CODE_OAUTH_TOKEN'] = token
   // suppress the "resume from summary?" dialog on old/large `--resume`s (2.1.212:
   // shown past 70min/100k-token thresholds) — it blocks unattended restore, and a
   // queued auto-"continue" could confirm its default and /compact the session
@@ -243,13 +257,24 @@ function patchClaudeJson(configDir: string, change: (config: ClaudeJson) => Clau
  * on a freshly added account ran the whole onboarding, theme picker then
  * "Select login method", asking to log in all over again. Writes only when the
  * flag is missing. Best-effort: failing just means the onboarding shows.
+ *
+ * `create` starts the config when there is none: a token account never logs
+ * in, so nothing else would write it, and with the flag alone claude goes
+ * straight to its prompt (verified 2.1.286).
  */
-export function markOnboarded(configDir: string): void {
+export function markOnboarded(configDir: string, opts: { create?: boolean } = {}): void {
   try {
     patchClaudeJson(configDir, (c) => (c['hasCompletedOnboarding'] === true ? null : { ...c, hasCompletedOnboarding: true }))
   } catch (err) {
-    // no config yet = never logged in, nothing to fix
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') console.warn(`[auth] could not mark ${configDir} onboarded:`, err)
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return console.warn(`[auth] could not mark ${configDir} onboarded:`, err)
+    // no config yet = never logged in, nothing to fix — unless asked to start one
+    if (!opts.create) return
+    try {
+      // 'wx': a claude that got there first keeps its file
+      writeFileSync(claudeJsonPath(configDir), JSON.stringify({ hasCompletedOnboarding: true }, null, 2), { mode: 0o600, flag: 'wx' })
+    } catch (e) {
+      console.warn(`[auth] could not start the config of ${configDir}:`, e)
+    }
   }
 }
 
@@ -630,18 +655,60 @@ export function detectUltracode(text: string): boolean | null {
 }
 
 /**
- * Extract the OAuth sign-in URL from `claude auth login` output. The CLI emits it
- * as an OSC-8 terminal hyperlink (`ESC ] 8 ; ; <url> BEL`) — read the URL straight
- * out of that escape so we get one clean copy (the visible text repeats it).
+ * Extract the OAuth sign-in URL from `claude auth login` / `claude setup-token`
+ * output. The CLI emits it as an OSC-8 terminal hyperlink (`ESC ] 8 ; <params>
+ * ; <url> BEL`) — read the URL straight out of that escape so we get one clean
+ * copy (the visible text repeats it). `auth login` leaves the params empty;
+ * the setup-token screen sets `id=…` (verified 2.1.286).
  */
 export function extractLoginUrl(text: string): string | null {
   // the link is ~1KB (pty reads chunk at 1KB): insist on the hyperlink's
   // terminator so a chunk split mid-URL can't hand out a truncated link whose
   // PKCE state would never match the waiting process
-  const osc = text.match(/\x1b\]8;;(https?:\/\/[^\x07\x1b]+)(?:\x07|\x1b\\)/)
+  const osc = text.match(/\x1b\]8;[^;\x07\x1b]*;(https?:\/\/[^\x07\x1b]+)(?:\x07|\x1b\\)/)
   if (osc) return osc[1]
   const plain = text.match(/https?:\/\/[^\s'"\x1b\x07]+(?=\s)/)
   return plain ? plain[0] : null
+}
+
+/** the CLI command behind each kind of sign-in. Both run the same OAuth
+ *  screens: a browser link, and a "Paste code here" prompt as the fallback */
+export const SIGN_IN_ARGS = { login: ['auth', 'login'], token: ['setup-token'] } as const
+
+/** how long a `claude setup-token` token lasts: the CLI asks for exactly one
+ *  year and takes no option to change it (verified 2.1.286). The token does
+ *  not carry its expiry, so this is the only way to know it */
+export const SETUP_TOKEN_TTL_MS = 365 * 86_400_000
+
+/**
+ * The token on the success screen of `claude setup-token` (verified 2.1.286):
+ *   ✓ Long-lived authentication token created successfully!
+ *   Your OAuth token (valid for 1 year):
+ *   sk-ant-oat01-…
+ *   Store this token securely. You won't be able to see it again.
+ * Null until the line after the token is there too, so a chunk split
+ * mid-token can't hand out a truncated one. The screen must not wrap: the
+ * token is longer than a narrow terminal is wide — run it in a wide pty.
+ */
+export function extractSetupToken(text: string): string | null {
+  return /Your\s*OAuth\s*token[^:]*:\s*(\S{20,})\s+Store\s*this\s*token/.exec(spaced(text))?.[1] ?? null
+}
+
+/** stripAnsi, but with a space where the TUI moved the cursor: it may place
+ *  lines that way instead of breaking them, and a token or a sentence would
+ *  otherwise fuse with the words around it */
+function spaced(text: string): string {
+  return stripAnsi(text.replace(/\x1b\[[0-9;]*[A-HJKSTdf]/g, ' '))
+}
+
+/**
+ * The CLI's own words for a sign-in that did not go through: `claude auth
+ * login` prints "Invalid code. …" or "Login failed: …", the setup-token screen
+ * "OAuth error: …" (verified 2.1.286).
+ */
+export function signInError(text: string): string | null {
+  const m = /(?:Invalid\s*code|Login\s*failed|OAuth\s*error)[^\n\r]*/i.exec(spaced(text))
+  return m ? m[0].replace(/\s+/g, ' ').trim().slice(0, 200) : null
 }
 
 // ── usage (claude's own /usage report) ──────────────────────────────────────

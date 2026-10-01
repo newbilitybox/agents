@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useApp } from '@/stores/app'
+import { AccountTokenSection } from '@/components/account-token-section'
 
-/** Edit an account's note, or delete it (blocked while sessions use it; needs a confirm). */
+/** Edit an account's note, manage its long-lived token, or delete it (blocked while sessions use it; needs a confirm). */
 export function AccountEditDialog({ account, onClose }: { account: Account; onClose: () => void }) {
   const { t } = useTranslation()
   const inUse = useApp((s) => s.sessions.filter((x) => x.accountDir === account.configDir).length)
@@ -46,6 +47,8 @@ export function AccountEditDialog({ account, onClose }: { account: Account; onCl
           <Input id="edit-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('account.notePlaceholder')} />
         </div>
 
+        <AccountTokenSection account={account} />
+
         {inUse > 0 && <p className="text-destructive text-sm">{t('account.deleteInUse', { count: inUse })}</p>}
         {confirming && (
           <div className="border-destructive/40 bg-destructive/5 grid gap-1 rounded-md border p-3">
@@ -66,7 +69,8 @@ export function AccountEditDialog({ account, onClose }: { account: Account; onCl
               <Button variant="ghost" className="text-destructive" disabled={inUse > 0} onClick={() => setConfirming(true)}>
                 <Trash2 /> {t('common.delete')}
               </Button>
-              {account.loginStatus === 'logged_in' && (
+              {/* a token account has no login to drop — its token is replaced above */}
+              {account.auth === 'login' && account.loginStatus === 'logged_in' && (
                 <Button variant="ghost" disabled={loggingOut} onClick={() => void logout()}>
                   {loggingOut ? <Loader2 className="size-4 animate-spin" /> : <LogOut />} {t('account.logout')}
                 </Button>

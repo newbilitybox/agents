@@ -26,6 +26,7 @@ description: 把 Agent S 實際跑起來驗證改動時使用：用 Playwright �
 - 測試用的是使用者的真實帳號：送 prompt 會花額度，能不送就不送；別在真實帳號上打 `/model`、`/effort <level>`（會寫成該帳號的預設）。要讓 transcript 有記錄又不花額度：Pro 帳號的 `/cost` 會寫記錄，Max 帳號的 `/cost` 只開用量面板、不寫。
 - 讀輸入框要用 placeholder 找 ChatInput：`document.querySelector('textarea')` 會先抓到 xterm 隱藏的 helper textarea。
 - 拖檔：CDP `Input.dispatchDragEvent`（`data.files: [真實路徑]`）能驗 preload 的路徑解析與路由，但測不到游標（真實拖曳到 xterm 上要 `dropEffect='copy'` 才會觸發 drop）。貼檔：先 `osascript -e 'set the clipboard to (POSIX file "…")'` 再按 ⌘V。
-- 要模擬 claude 起不來、秒退或印出特定文案：app 用 login shell 找 `claude`，所以給 `launch()` 的 `env` 加 `ZDOTDIR`，指到一個只放 `.zshrc` 的目錄，在裡面把 PATH 設成「放了假 `claude` 腳本的目錄＋系統路徑」。假腳本要回應 `auth status --json`（印 `{"loggedIn":true,…}`），其餘依參數有沒有 `--resume` 決定退出或 `exec sleep`；帳號與 session 直接寫進 `dataDir/config.json`。
+- 要模擬 claude 起不來、秒退或印出特定文案：app 用 login shell 找 `claude`，所以給 `launch()` 的 `env` 加 `ZDOTDIR`，指到一個只放 `.zshrc` 的目錄，在裡面把 PATH 設成「放了假 `claude` 腳本的目錄＋系統路徑」。假腳本要回應 `auth status --json`（印 `{"loggedIn":true,…}`），其餘依參數有沒有 `--resume` 決定退出或 `exec sleep`；帳號與 session 直接寫進 `dataDir/config.json`。假腳本只驗得到 app 這邊的流程：CLI 真正印出來的格式（超連結、畫面文字）要另外用真的 `claude` 配空的設定目錄跑一次，假腳本是照你以為的格式印的，錯的假設也會通過。
+- `t.close()` 之前先 `stopSession` 所有還活著的 session：有活的 session 時退出會跳同步的確認框（`before-quit`），沒人按就卡住，只能 `kill -9` 自己啟動的那個 Electron 主行程。
 - 清理只殺自己啟動的：優先 `t.close()`；有殘留時只用本 worktree 路徑或測試資料目錄匹配（`pkill -f "<worktree>/node_modules/.*Electron"`、`pkill -f "<測試資料目錄>/session-settings"`）。絕不用 `session-settings/` 這種會命中正式版 claude 的樣式，也別用只含 `agents` 的樣式（會殺到其他 worktree 的 dev app）。
 - 收尾刪掉測試在真實帳號留下的 transcript：`<configDir>/projects/` 底下以測試路徑命名的目錄。在新目錄開過 session 的帳號，`.claude.json` 會多一筆信任記錄（無害）。

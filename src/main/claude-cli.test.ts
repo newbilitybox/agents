@@ -4,7 +4,20 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { detectRateLimit, markOnboarded, parseUsageReport, planLabel, resumeRejected, sessionArgs, trustRepo } from './claude-cli.ts'
+import {
+  detectRateLimit,
+  envFor,
+  extractLoginUrl,
+  extractSetupToken,
+  markOnboarded,
+  parseUsageReport,
+  planLabel,
+  resumeRejected,
+  sessionArgs,
+  setTokenSource,
+  signInError,
+  trustRepo
+} from './claude-cli.ts'
 
 const at = (y: number, mon: number, d: number, h: number, min = 0): number => new Date(y, mon - 1, d, h, min).getTime()
 const NOW = new Date(2026, 8, 29, 9, 33) // Sep 29 2026, 09:33 local
@@ -81,6 +94,70 @@ test('markOnboarded leaves a profile without a config alone', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agents-test-'))
   markOnboarded(dir)
   assert.throws(() => statSync(join(dir, '.claude.json')))
+})
+
+// a token account never runs `claude auth login`, so nothing ever writes its config
+test('markOnboarded can start the config of a profile that has none, readable by the user only', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agents-test-'))
+  markOnboarded(dir, { create: true })
+  const file = join(dir, '.claude.json')
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { hasCompletedOnboarding: true })
+  assert.equal(statSync(file).mode & 0o777, 0o600)
+  const existing = freshLogin()
+  markOnboarded(existing, { create: true }) // …and still only patches one that exists
+  assert.equal(JSON.parse(readFileSync(join(existing, '.claude.json'), 'utf8')).numStartups, 1)
+})
+
+test('a token account hands its token to every claude process; a login account gets none', async () => {
+  const tokenDir = mkdtempSync(join(tmpdir(), 'agents-test-'))
+  setTokenSource((dir) => (dir === tokenDir ? 'sk-ant-oat01-abc' : null))
+  try {
+    assert.equal((await envFor(tokenDir))['CLAUDE_CODE_OAUTH_TOKEN'], 'sk-ant-oat01-abc')
+    assert.equal('CLAUDE_CODE_OAUTH_TOKEN' in (await envFor(mkdtempSync(join(tmpdir(), 'agents-test-')))), false)
+  } finally {
+    setTokenSource(() => null)
+  }
+})
+
+// the success screen of `claude setup-token` (2.1.286): SGR colours around each
+// line, the lines themselves placed with cursor moves or plain line breaks
+const TOKEN = 'sk-ant-oat01-Zx9_Storeroom-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
+const setupScreen = (sep: string): string =>
+  [
+    '\x1b[32m✓ Long-lived authentication token created successfully!\x1b[39m',
+    'Your OAuth token (valid for 1 year):',
+    `\x1b[33m${TOKEN}\x1b[39m`,
+    "\x1b[2mStore this token securely. You won't be able to see it again.\x1b[22m",
+    '\x1b[2mUse this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\x1b[22m'
+  ].join(sep)
+
+test('extractSetupToken reads the token off the success screen, however its lines are placed', () => {
+  assert.equal(extractSetupToken(setupScreen('\r\n')), TOKEN)
+  assert.equal(extractSetupToken(setupScreen('\x1b[1B\x1b[1G')), TOKEN) // no literal whitespace between lines
+})
+
+test('extractSetupToken waits for the whole screen — a chunk boundary must not cut the token short', () => {
+  const screen = setupScreen('\r\n')
+  assert.equal(extractSetupToken(screen.slice(0, screen.indexOf(TOKEN) + 30)), null)
+  assert.equal(extractSetupToken('Browser didn\'t open? Use the url below to sign in\r\nPaste code here if prompted >'), null)
+})
+
+test('extractLoginUrl reads the sign-in link off either hyperlink form, and only once it is whole', () => {
+  const url = 'https://claude.com/cai/oauth/authorize?code=true&client_id=abc&scope=user%3Ainference&state=xyz'
+  // `claude auth login`: empty hyperlink params
+  assert.equal(extractLoginUrl(`If the browser didn't open, visit: \x1b]8;;${url}\x07${url}\x1b]8;;\x07\r\n`), url)
+  // the setup-token screen (2.1.286): an id param, and colour codes right after the visible copy
+  assert.equal(extractLoginUrl(`\x1b]8;id=dh1c15;${url}\x07\x1b[38;5;246m${url}\x1b[39m\x1b]8;;\x07\r`), url)
+  assert.equal(extractLoginUrl(`\x1b]8;id=dh1c15;${url.slice(0, 40)}`), null) // a chunk that ends mid-link
+})
+
+test('signInError quotes what the CLI said went wrong, from either sign-in', () => {
+  assert.equal(signInError('Paste code here if prompted > abc\r\nInvalid code. Please make sure the full code was copied.\r\n'), 'Invalid code. Please make sure the full code was copied.')
+  assert.equal(
+    signInError('\x1b[31mOAuth\x1b[1Cerror:\x1b[1CInvalid\x1b[1Ccode.\x1b[39m\x1b[2B\x1b[1GPress Enter to retry'),
+    'OAuth error: Invalid code. Press Enter to retry'
+  )
+  assert.equal(signInError('Opening browser to sign in…\r\nPaste code here if prompted >'), null)
 })
 
 test('a limit banner parks until the reset it states itself', () => {

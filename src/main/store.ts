@@ -1,8 +1,21 @@
 import Store from 'electron-store'
 import type { Account, ModelOption, Session } from '../shared/types'
 
+/** an account's long-lived token (`claude setup-token`), value included */
+export interface StoredToken {
+  configDir: string
+  value: string
+  /** epoch ms it was generated here; null for a pasted token */
+  createdAt: number | null
+  /** epoch ms it stops working; null when unknown */
+  expiresAt: number | null
+}
+
 interface Schema {
   accounts: Account[]
+  /** kept apart from `accounts`, which is broadcast to the renderer whole —
+   *  token values only leave the main process when asked for */
+  tokens: StoredToken[]
   sessions: Session[]
   /** recently used launch-args strings, most-recent first (max 10) */
   recentLaunchArgs: string[]
@@ -15,7 +28,9 @@ export type AppStore = Store<Schema>
 
 export function createStore(): AppStore {
   return new Store<Schema>({
-    defaults: { accounts: [], sessions: [], recentLaunchArgs: [], knownModels: [] }
+    defaults: { accounts: [], tokens: [], sessions: [], recentLaunchArgs: [], knownModels: [] },
+    // it holds account tokens in plain text (DECISIONS.md, 2026-10-01)
+    configFileMode: 0o600
   })
 }
 

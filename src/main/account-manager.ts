@@ -2,12 +2,27 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, mkdtempSync, writeFil
 import { createHash } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
-import type { Account, AccountUsage } from '../shared/types'
-import type { LoginLinks, LoginResult, NewAccountInput } from '../shared/ipc'
-import type { AppStore } from './store'
+import type { Account, AccountTokenInfo, AccountUsage, LoginStatus } from '../shared/types'
+import type { LoginLinks, LoginPurpose, LoginResult, NewAccountInput } from '../shared/ipc'
+import type { AppStore, StoredToken } from './store'
 import type { PtyManager } from './pty-manager'
 import type { LimitHit } from './claude-cli'
-import { authStatus, claudeLogout, claudePath, envFor, extractLoginUrl, fetchUsage, markOnboarded, scratchCwd, stripAnsi } from './claude-cli'
+import {
+  SETUP_TOKEN_TTL_MS,
+  SIGN_IN_ARGS,
+  authStatus,
+  claudeLogout,
+  claudePath,
+  envFor,
+  extractLoginUrl,
+  extractSetupToken,
+  fetchUsage,
+  markOnboarded,
+  scratchCwd,
+  setTokenSource,
+  signInError,
+  stripAnsi
+} from './claude-cli'
 import { logResources } from './resource-log'
 
 /** utilization at/above which an account is treated as (nearly) spent:
@@ -31,6 +46,15 @@ function displayName(configDir: string): string {
   }
 }
 
+/** A token as the user typed or pasted it, checked at the door: it goes into
+ *  an environment variable verbatim, so it must be one unbroken word. */
+function checkedToken(raw: string): string {
+  const token = raw.trim()
+  if (!token) throw new Error('token required')
+  if (/\s/.test(token)) throw new Error('invalid token: it must not contain spaces or line breaks')
+  return token
+}
+
 function emptyUsage(): AccountUsage {
   return { fiveHour: null, weekly: null, resetsAt: null, weeklyResetsAt: null, weeklyModels: [], limitedUntil: null, limitedFamily: null, updatedAt: null }
 }
@@ -43,9 +67,20 @@ export function modelFamily(model: string | null | undefined): string | null {
   return m ? m[1].toLowerCase() : null
 }
 
+/** wide enough that the setup-token screen never wraps its token (see extractSetupToken) */
+const TOKEN_PTY_COLS = 500
+
+/** A token account is as signed in as its token is alive. A pasted token
+ *  without a date counts as alive: nothing short of a request can tell. */
+function tokenLoginStatus(token: StoredToken | undefined): LoginStatus {
+  if (!token) return 'logged_out'
+  return token.expiresAt != null && token.expiresAt <= Date.now() ? 'expired' : 'logged_in'
+}
+
 export class AccountManager {
-  /** in-progress `claude auth login` processes, by config dir (ptys hold the process) */
-  private logins = new Set<string>()
+  /** in-progress sign-ins (`claude auth login` or `claude setup-token`) and
+   *  what each is for, by config dir (ptys hold the process) */
+  private logins = new Map<string, LoginPurpose>()
   /** config dirs with a /usage probe already in flight — the accounts panel
    *  opening, the periodic refresh and limit detection can overlap; one probe
    *  is enough */
@@ -74,12 +109,32 @@ export class AccountManager {
       this.ptys.forget(id)
       void this.refreshAuth(dir)
     })
+    // `claude setup-token` shows its token once and exits — store it the moment
+    // the screen is complete, whichever way the sign-in came back (pasted code
+    // or browser callback)
+    this.ptys.on('data', ({ id }: { id: string }) => {
+      const dir = loginDirOf(id)
+      if (dir === null || this.logins.get(dir) !== 'token') return
+      const value = extractSetupToken(this.ptys.snapshot(id).data)
+      if (!value) return
+      this.cancelLogin(dir) // it has nothing more to say, and its screen holds the token
+      const now = Date.now()
+      void this.saveToken({ configDir: dir, value, createdAt: now, expiresAt: now + SETUP_TOKEN_TTL_MS })
+    })
+    setTokenSource((dir) => (this.get(dir)?.auth === 'token' ? (this.storedToken(dir)?.value ?? null) : null))
   }
 
   list(): Account[] {
+    const tokens = this.store.get('tokens') ?? []
+    const tokenInfo = (dir: string): AccountTokenInfo | null => {
+      const t = tokens.find((x) => x.configDir === dir)
+      return t ? { hint: t.value.slice(-4), createdAt: t.createdAt, expiresAt: t.expiresAt } : null
+    }
     // tolerate accounts persisted before newer fields existed
     return (this.store.get('accounts') ?? []).map((a) => ({
       ...a,
+      auth: a.auth ?? 'login',
+      token: tokenInfo(a.configDir),
       note: a.note ?? '',
       usage: {
         ...a.usage,
@@ -99,11 +154,14 @@ export class AccountManager {
 
   /**
    * Register an account. Name comes first; an empty path defaults to
-   * ~/.claude-<name>. Creates the dir if missing.
+   * ~/.claude-<name>. Creates the dir if missing. With a token the account
+   * runs on that instead of a local login; its dir still holds its
+   * conversations and settings.
    */
   async register(input: NewAccountInput): Promise<void> {
     const name = input.name.trim()
     if (!name) throw new Error('name required')
+    const token = input.token == null ? null : checkedToken(input.token)
     const rawPath = input.path.trim() || join(homedir(), `.claude-${name}`)
     const configDir = normalize(rawPath)
     if (!isAbsolute(configDir)) throw new Error(`invalid path: ${rawPath}`)
@@ -113,6 +171,7 @@ export class AccountManager {
 
     const account: Account = {
       configDir,
+      auth: token ? 'token' : 'login',
       name,
       note: input.note.trim(),
       email: null,
@@ -122,8 +181,36 @@ export class AccountManager {
       usage: emptyUsage()
     }
     this.store.set('accounts', [...this.persisted(), account])
+    // saveToken() broadcasts and refreshes the account's auth itself
+    if (token) return this.saveToken({ configDir, value: token, createdAt: null, expiresAt: input.tokenExpiresAt ?? null })
     this.onChange()
     await this.refreshAuth(configDir)
+  }
+
+  // ── long-lived tokens (`claude setup-token`) ─────────────────────────────────
+
+  private storedToken(configDir: string): StoredToken | undefined {
+    return (this.store.get('tokens') ?? []).find((t) => t.configDir === configDir)
+  }
+
+  /** Store an account's token, replacing the one it had. The old one is not
+   *  revoked — the CLI offers no way to — it just lives out its year. */
+  private async saveToken(token: StoredToken): Promise<void> {
+    this.store.set('tokens', [...(this.store.get('tokens') ?? []).filter((t) => t.configDir !== token.configDir), token])
+    this.onChange()
+    // a token account's sign-in just changed; a login account only keeps the token for the user
+    if (this.get(token.configDir)?.auth === 'token') await this.refreshAuth(token.configDir)
+  }
+
+  /** The token itself — for the user to look at or copy, on request only. */
+  revealToken(configDir: string): string | null {
+    return this.storedToken(configDir)?.value ?? null
+  }
+
+  /** Store a token the user pasted (generated elsewhere, so its age is unknown). */
+  async setToken(configDir: string, value: string, expiresAt: number | null): Promise<void> {
+    if (!this.get(configDir)) throw new Error(`no such account: ${configDir}`)
+    await this.saveToken({ configDir, value: checkedToken(value), createdAt: null, expiresAt })
   }
 
   updateNote(configDir: string, note: string): void {
@@ -149,6 +236,7 @@ export class AccountManager {
     for (const dir of candidates.filter((d) => !this.get(d))) {
       const account: Account = {
         configDir: dir,
+        auth: 'login',
         name: displayName(dir),
         note: '',
         email: null,
@@ -168,6 +256,14 @@ export class AccountManager {
   async refreshAuth(configDir: string, withUsage = true): Promise<void> {
     const account = this.get(configDir)
     if (!account) return
+    if (account.auth === 'token') {
+      // `claude auth status` reads "logged in" off any token at all, and a
+      // token carries neither email nor plan (verified 2.1.286) — the stored
+      // expiry is all there is to check. No usage probe either: see refreshUsage
+      this.update(configDir, { loginStatus: tokenLoginStatus(this.storedToken(configDir)), authCheckedAt: Date.now() })
+      markOnboarded(configDir, { create: true }) // it never logs in, so nothing else would
+      return
+    }
     try {
       const st = await authStatus(configDir)
       this.update(configDir, {
@@ -187,6 +283,10 @@ export class AccountManager {
 
   async refreshUsage(configDir: string): Promise<void> {
     if (process.env['AGENTS_NO_USAGE_FETCH'] || this.probing.has(configDir)) return
+    // /usage needs the user:profile scope and a long-lived token is
+    // inference-only (2.1.286): the report comes back without its windows.
+    // A token account's usage only ever arrives from a running session's statusline
+    if (this.get(configDir)?.auth === 'token') return
     this.probing.add(configDir)
     this.onChange() // usageRefreshing → the panel shows a spinner instead of stale-looking numbers
     try {
@@ -336,12 +436,16 @@ export class AccountManager {
     return candidates.find((a) => used(a) < HEADROOM_PCT) ?? candidates[0] ?? null
   }
 
-  /** Remove the account record AND its config directory (never the default ~/.claude). */
+  /** Remove the account record, its stored token AND its config directory (never the default ~/.claude). */
   remove(configDir: string): void {
     this.cancelLogin(configDir)
     this.store.set(
       'accounts',
       this.persisted().filter((a) => a.configDir !== configDir)
+    )
+    this.store.set(
+      'tokens',
+      (this.store.get('tokens') ?? []).filter((t) => t.configDir !== configDir)
     )
     this.onChange()
     if (resolve(configDir) !== join(homedir(), '.claude')) {
@@ -374,11 +478,14 @@ export class AccountManager {
   }
 
   /**
-   * Start `claude auth login` for an account and resolve with its links. The
-   * pty stays alive — waiting for the pasted code, the browser callback, or
-   * the user typing into the dialog's terminal (it IS the CLI's own prompt).
+   * Start a sign-in for an account — `claude auth login`, or `claude
+   * setup-token` to generate its long-lived token — and resolve with its
+   * links. The pty stays alive — waiting for the pasted code, the browser
+   * callback, or the user typing into the dialog's terminal (it IS the CLI's
+   * own prompt). A token sign-in ends by itself: see the data watcher in the
+   * constructor.
    */
-  async startLogin(configDir: string): Promise<LoginLinks> {
+  async startLogin(configDir: string, purpose: LoginPurpose = 'login'): Promise<LoginLinks> {
     const id = loginPtyId(configDir)
     this.cancelLogin(configDir)
     const [env, bin] = await Promise.all([envFor(configDir), claudePath()])
@@ -392,8 +499,14 @@ export class AccountManager {
     env['PATH'] = `${this.browserShim()}:${env['PATH'] ?? ''}`
     env['AGENTS_LOGIN_URL_FILE'] = urlFile
     this.loginVerdicts.delete(configDir)
-    this.ptys.spawn(id, bin, ['auth', 'login'], { cwd: scratchCwd(), env })
-    this.logins.add(configDir)
+    if (purpose === 'token') {
+      // a token account's current token: setup-token would only warn about it,
+      // but the new one must come from the browser sign-in alone
+      delete env['CLAUDE_CODE_OAUTH_TOKEN']
+      this.ptys.resize(id, TOKEN_PTY_COLS, 30) // no terminal mounts on it to size it otherwise
+    }
+    this.ptys.spawn(id, bin, [...SIGN_IN_ARGS[purpose]], { cwd: scratchCwd(), env })
+    this.logins.set(configDir, purpose)
     this.onChange() // loginActive
     const manualUrl = await this.awaitOutput(id, 20_000, (out) => extractLoginUrl(out))
     if (!manualUrl) {
@@ -418,14 +531,24 @@ export class AccountManager {
    *  leaves the prompt up for another try), else the auth state after exit. */
   async submitLoginCode(configDir: string, code: string): Promise<LoginResult> {
     const id = loginPtyId(configDir)
+    const purpose = this.logins.get(configDir)
+    const tokenBefore = this.storedToken(configDir)?.value
     let message: string | null = null
     if (this.ptys.isAlive(id)) {
       // send the (long) code, then Enter after a beat so the whole line is buffered
       // before submit — an immediate CR can cut a long paste short → "invalid code"
       this.ptys.write(id, code.trim())
       setTimeout(() => this.ptys.write(id, '\r'), 80)
-      message = await this.awaitOutput(id, 25_000, (out) => /Invalid code[^\n\r]*|Login failed[^\n\r]*/i.exec(stripAnsi(out))?.[0].trim() ?? null)
-      if (message && /Invalid code/i.test(message) && this.ptys.isAlive(id)) return { ok: false, message } // still waiting — retry
+      // '' = the token screen: nothing went wrong, and the data watcher has stored it
+      message = await this.awaitOutput(id, 25_000, (out) => (extractSetupToken(out) ? '' : signInError(out)))
+      if (purpose === 'login' && message && /Invalid code/i.test(message) && this.ptys.isAlive(id)) return { ok: false, message } // still waiting — retry
+    }
+    if (purpose === 'token') {
+      // an error leaves setup-token on a "press Enter to retry" screen whose
+      // link is spent: end it, and let the dialog start over with a fresh one
+      if (message) this.loginVerdicts.set(configDir, message)
+      this.cancelLogin(configDir)
+      return { ok: this.storedToken(configDir)?.value !== tokenBefore, message: message || null }
     }
     // the pty may already be gone (it exited on success/failure, or a browser
     // callback finished the login) — the outcome is whatever auth says now
@@ -482,12 +605,12 @@ export class AccountManager {
   }
 
   shutdown(): void {
-    for (const dir of [...this.logins]) this.cancelLogin(dir)
+    for (const dir of [...this.logins.keys()]) this.cancelLogin(dir)
   }
 
   /** the stored records — list() adds runtime-only fields that must not be written back */
   private persisted(): Account[] {
-    return this.list().map(({ usageRefreshing: _u, loginActive: _l, loginVerdict: _v, ...a }) => a)
+    return this.list().map(({ usageRefreshing: _u, loginActive: _l, loginVerdict: _v, token: _t, ...a }) => a)
   }
 
   private update(configDir: string, patch: Partial<Account>): void {

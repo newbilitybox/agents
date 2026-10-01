@@ -36,6 +36,29 @@ export interface AccountUsage {
 }
 
 /**
+ * How an account's claude processes authenticate: `login` is the CLI's own
+ * stored sign-in (`claude auth login`); `token` hands every process the
+ * account's long-lived token (CLAUDE_CODE_OAUTH_TOKEN) instead. Such a token
+ * is inference-only, so a token account has no email, no plan and no usage
+ * until a session runs on it.
+ */
+export type AccountAuth = 'login' | 'token'
+
+/**
+ * What the UI may know about an account's long-lived token (`claude
+ * setup-token`). The value itself stays in the main process and is only
+ * handed out on request (`revealAccountToken`).
+ */
+export interface AccountTokenInfo {
+  /** the token's last characters, enough to tell two apart */
+  hint: string
+  /** epoch ms it was generated here; null for a pasted token */
+  createdAt: number | null
+  /** epoch ms it stops working; null when unknown (pasted without a date) */
+  expiresAt: number | null
+}
+
+/**
  * An account IS a claude config dir. Registering a path that already holds a
  * logged-in config just works; an empty dir can be registered first and logged
  * in later.
@@ -43,6 +66,7 @@ export interface AccountUsage {
 export interface Account {
   /** CLAUDE_CONFIG_DIR — the unique key (normalized absolute path) */
   configDir: string
+  auth: AccountAuth
   /** display name: user-set, or claude-switch .profile-name, or dir basename */
   name: string
   /** free-form user note */
@@ -58,7 +82,11 @@ export interface Account {
   usage: AccountUsage
   /** a /usage probe is in flight (runtime only, never persisted) */
   usageRefreshing?: boolean
-  /** a `claude auth login` process is alive for this account (runtime only) */
+  /** the account's stored long-lived token, if any (derived from the token
+   *  vault, never persisted on the account). A `login` account only keeps it
+   *  for the user to copy; a `token` account runs on it */
+  token?: AccountTokenInfo | null
+  /** a `claude auth login` / `claude setup-token` process is alive for this account (runtime only) */
   loginActive?: boolean
   /** the last line that login process printed before ending (runtime only) —
    *  "Login successful." or the CLI's failure reason */

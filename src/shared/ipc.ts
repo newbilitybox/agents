@@ -21,7 +21,11 @@ export interface SessionConfigPatch {
   stopOnFallback?: boolean
 }
 
-/** what `claude auth login` offers, off one pty */
+/** what a sign-in is for: logging the account in (`claude auth login`), or
+ *  generating a long-lived token for it (`claude setup-token`) */
+export type LoginPurpose = 'login' | 'token'
+
+/** what `claude auth login` / `claude setup-token` offers, off one pty */
 export interface LoginLinks {
   /** copy-anywhere link: the code it ends with is pasted back (or typed into the terminal) */
   manualUrl: string
@@ -44,6 +48,10 @@ export interface NewAccountInput {
   /** empty → defaults to ~/.claude-<name> */
   path: string
   note: string
+  /** a long-lived token to run the account on, instead of a local login */
+  token?: string
+  /** epoch ms that token expires, when the user knows it */
+  tokenExpiresAt?: number | null
 }
 
 /** Runtime view of a session (persisted fields + live pty info). */
@@ -112,10 +120,14 @@ export interface IpcApi {
   refreshAuth(configDir: string): Promise<void>
   /** refresh usage for all logged-in accounts (may prompt for Keychain access) */
   refreshAllUsage(): Promise<void>
-  /** start `claude auth login`; resolves with its sign-in links (no browser opens by itself) */
-  startLogin(configDir: string): Promise<LoginLinks>
-  /** submit the pasted code; ok once the account is logged in */
+  /** start the sign-in for `purpose` (default: login); resolves with its links (no browser opens by itself) */
+  startLogin(configDir: string, purpose?: LoginPurpose): Promise<LoginLinks>
+  /** submit the pasted code; ok once the account is logged in / its new token is stored */
   submitLoginCode(configDir: string, code: string): Promise<LoginResult>
+  /** the account's stored long-lived token itself (state only carries `Account.token`) */
+  revealAccountToken(configDir: string): Promise<string | null>
+  /** store a token the user pasted, replacing the account's current one */
+  setAccountToken(configDir: string, token: string, expiresAt: number | null): Promise<void>
   /** abort an in-progress login (dialog closed) */
   cancelLogin(configDir: string): Promise<void>
   /** log an account out */
@@ -177,6 +189,8 @@ export const INVOKE_CHANNELS = [
   'refreshAllUsage',
   'startLogin',
   'submitLoginCode',
+  'revealAccountToken',
+  'setAccountToken',
   'cancelLogin',
   'logout',
   'removeAccount',

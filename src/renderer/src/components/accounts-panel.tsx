@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FolderOpen, Loader2, LogIn, Pencil, RefreshCw, ScanSearch } from 'lucide-react'
-import type { Account, LoginStatus } from '@shared/types'
+import type { Account, AccountAuth, LoginStatus } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { hasUsage, timeAgo } from '@/lib/usage'
 import { UsageLines, useNow } from '@/components/usage-lines'
 import { AccountEditDialog } from '@/components/account-edit-dialog'
 import { AccountLoginDialog } from '@/components/account-login-dialog'
+import { TokenExpiry, endOfDay } from '@/components/account-token-section'
 
 const STATUS_VARIANT: Record<LoginStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   logged_in: 'default',
@@ -25,6 +26,7 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
   useNow() // "updated 3 min ago" moves with the clock
   const u = account.usage
   const loggedIn = account.loginStatus === 'logged_in'
+  const viaToken = account.auth === 'token'
   // when the USAGE numbers last moved (statusline patch or /usage probe) — an
   // auth check alone must not make stale numbers look fresh
   const checkedAt = u.updatedAt ?? account.authCheckedAt
@@ -42,6 +44,7 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{account.name}</span>
           <Badge variant={STATUS_VARIANT[account.loginStatus]}>{t(`account.status.${account.loginStatus}`)}</Badge>
+          {viaToken && <Badge variant="outline">{t('account.authToken')}</Badge>}
           {account.subscriptionType && <Badge variant="outline">{account.subscriptionType}</Badge>}
           {account.note && <span className="text-muted-foreground truncate text-xs">— {account.note}</span>}
         </div>
@@ -49,6 +52,12 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
           {account.configDir}
           {account.email ? ` · ${account.email}` : ''}
         </div>
+        {/* how long a token account stays signed in */}
+        {viaToken && account.token && (
+          <div className="text-muted-foreground text-xs">
+            <TokenExpiry token={account.token} />
+          </div>
+        )}
         {hasUsage(u) && (
           <div className="text-muted-foreground text-xs leading-relaxed">
             <UsageLines usage={u} />
@@ -78,7 +87,8 @@ function AccountRow({ account, onEdit, onLogin }: { account: Account; onEdit: ()
         >
           <RefreshCw className={busy ? 'animate-spin' : ''} />
         </Button>
-        {!loggedIn && (
+        {/* a token account signs in again by getting a new token — that lives in the edit dialog */}
+        {!loggedIn && !viaToken && (
           <Button variant="ghost" size="icon" aria-label={t('account.login')} onClick={onLogin}>
             <LogIn />
           </Button>
@@ -100,6 +110,9 @@ export function AccountsPanel() {
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
   const [note, setNote] = useState('')
+  const [auth, setAuth] = useState<AccountAuth>('login')
+  const [token, setToken] = useState('')
+  const [tokenExpiry, setTokenExpiry] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -161,14 +174,50 @@ export function AccountsPanel() {
         <Label htmlFor="acc-note">{t('account.note')}</Label>
         <Input id="acc-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('account.notePlaceholder')} />
       </div>
+      <div className="grid gap-2">
+        <Label>{t('account.auth')}</Label>
+        <div className="flex gap-2">
+          {(['login', 'token'] as const).map((mode) => (
+            <Button key={mode} size="sm" variant={auth === mode ? 'default' : 'outline'} aria-pressed={auth === mode} onClick={() => setAuth(mode)}>
+              {t(mode === 'login' ? 'account.authLogin' : 'account.authToken')}
+            </Button>
+          ))}
+        </div>
+        <p className="text-muted-foreground text-xs">{t(auth === 'login' ? 'account.authLoginHint' : 'account.authTokenHint')}</p>
+      </div>
+      {auth === 'token' && (
+        <>
+          <div className="grid gap-2">
+            <Label htmlFor="acc-token">{t('account.tokenField')} *</Label>
+            <Input
+              id="acc-token"
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={t('account.tokenPlaceholder')}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="acc-token-expiry">{t('account.tokenExpiry')}</Label>
+            <Input id="acc-token-expiry" type="date" value={tokenExpiry} onChange={(e) => setTokenExpiry(e.target.value)} />
+          </div>
+        </>
+      )}
       <Button
-        disabled={!name || busy}
+        disabled={!name || busy || (auth === 'token' && !token.trim())}
         onClick={() =>
           void run(async () => {
-            await window.api.registerAccount({ name, path, note })
+            await window.api.registerAccount({
+              name,
+              path,
+              note,
+              ...(auth === 'token' && { token, tokenExpiresAt: endOfDay(tokenExpiry) })
+            })
             setName('')
             setPath('')
             setNote('')
+            setToken('')
+            setTokenExpiry('')
           })
         }
       >

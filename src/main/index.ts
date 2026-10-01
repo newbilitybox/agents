@@ -10,6 +10,7 @@ import {
   EVENT_STATE,
   ipcChannel,
   type AppState,
+  type LoginPurpose,
   type NewAccountInput,
   type NewSessionInput,
   type SessionConfigPatch
@@ -287,8 +288,10 @@ function bootstrap(): void {
   handle('updateAccountNote', (dir: string, note: string) => accounts.updateNote(dir, note))
   handle('refreshAuth', (dir: string) => accounts.refreshAuth(dir))
   handle('refreshAllUsage', () => accounts.refreshAllUsage())
-  handle('startLogin', (dir: string) => accounts.startLogin(dir))
+  handle('startLogin', (dir: string, purpose?: LoginPurpose) => accounts.startLogin(dir, purpose))
   handle('submitLoginCode', (dir: string, code: string) => accounts.submitLoginCode(dir, code))
+  handle('revealAccountToken', (dir: string) => accounts.revealToken(dir))
+  handle('setAccountToken', (dir: string, token: string, expiresAt: number | null) => accounts.setToken(dir, token, expiresAt))
   handle('cancelLogin', (dir: string) => accounts.cancelLogin(dir))
   handle('logout', (dir: string) => accounts.logout(dir))
   handle('removeAccount', (dir: string) => {
