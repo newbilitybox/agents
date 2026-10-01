@@ -24,6 +24,7 @@ import {
   parseSettingsOverrides,
   preselectsExit,
   readSystemPrompt,
+  resumeRejected,
   sessionArgs,
   stripAnsi,
   trustRepo,
@@ -182,14 +183,18 @@ export class SessionManager extends EventEmitter {
     })
     this.hooks.on('event', (ev: HookEvent) => this.onHookEvent(ev))
     this.ptys.on('data', ({ id, data }: { id: string; data: string }) => this.scanOutput(id, data))
-    this.ptys.on('exit', ({ id, exitCode, tail }: { id: string; exitCode: number; tail: string }) => {
+    this.ptys.on('exit', ({ id, exitCode, signal, tail }: { id: string; exitCode: number; signal?: number; tail: string }) => {
       // quitting: preserve state so restore knows what was active; login ptys aren't sessions
       if (this.shuttingDown || !this.get(id)) return
-      console.warn(`[session] ${id} claude exited (code ${exitCode}): ${stripAnsi(tail).replace(/\s+/g, ' ').trim().slice(-200)}`)
+      console.warn(
+        `[session] ${id} claude exited (code ${exitCode}, signal ${signal ?? 0}): ${stripAnsi(tail).replace(/\s+/g, ' ').trim().slice(-200)}`
+      )
       this.clearFallbackTimer(id) // a mismatch seen by a process that just died is moot
       this.launchedModel.delete(id)
-      // a --resume that exits before SessionStart failed (e.g. transcript gone) → start fresh
-      if (this.resuming.has(id)) return void this.resumeFailed(id)
+      // a --resume claude turned down before SessionStart (e.g. transcript
+      // unreadable) → start fresh. One that never got to run keeps its resume
+      // info: the conversation is intact and the next click resumes it
+      if (this.resuming.delete(id) && resumeRejected({ tail, signal })) return void this.resumeFailed(id)
       // queued text can't land in a dead process — report it dropped now, not at
       // a next spawn that may never come
       this.clearSends(id, 'claude exited')
@@ -325,12 +330,11 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * `claude --resume` exited before its SessionStart hook — the conversation is
-   * gone or incompatible. Reached only from the pty 'exit' handler (so the old
-   * pty is already gone); start a fresh session so the card still works.
+   * `claude --resume` turned the conversation down before its SessionStart
+   * hook — it is gone or incompatible. Reached only from the pty 'exit' handler
+   * (so the old pty is already gone); start a fresh session so the card still works.
    */
   private async resumeFailed(id: string): Promise<void> {
-    this.resuming.delete(id)
     this.pendingContinue.delete(id) // a "continue" into a brand-new empty conversation is nonsense
     this.tail.delete(id)
     this.update(id, { claudeSessionId: null, transcriptPath: null })

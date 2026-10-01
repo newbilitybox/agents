@@ -483,6 +483,20 @@ export function detectRateLimit(text: string, now = new Date()): LimitHit | null
 }
 
 /**
+ * Whether a `claude --resume` that exited before its SessionStart hook was
+ * claude turning the conversation down. It always says why first ("No
+ * conversation found with session ID: …", "Unable to load transcript from
+ * file: …" — verified 2.1.286), so the wording is not matched. An exit without
+ * a word means claude never ran — the OS refused the launch (a revoked
+ * signature on node-pty's spawn-helper, a node-pty built for the wrong ABI) —
+ * and a signal means something else ended it: neither is a verdict on the
+ * conversation, and the caller must keep it resumable.
+ */
+export function resumeRejected(exit: { tail: string; signal?: number }): boolean {
+  return !exit.signal && stripAnsi(exit.tail).trim() !== ''
+}
+
+/**
  * The CLI asking a running SESSION to sign in — its credentials went bad while
  * `claude auth status` still reads them as fine (it only reflects local
  * storage). Same wording as `claude auth login`; chrome, never in a replay.

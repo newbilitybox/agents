@@ -4,7 +4,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { detectRateLimit, markOnboarded, parseUsageReport, planLabel, sessionArgs, trustRepo } from './claude-cli.ts'
+import { detectRateLimit, markOnboarded, parseUsageReport, planLabel, resumeRejected, sessionArgs, trustRepo } from './claude-cli.ts'
 
 const at = (y: number, mon: number, d: number, h: number, min = 0): number => new Date(y, mon - 1, d, h, min).getTime()
 const NOW = new Date(2026, 8, 29, 9, 33) // Sep 29 2026, 09:33 local
@@ -127,6 +127,24 @@ const profileWith = (oauthAccount: object): string => {
   writeFileSync(join(dir, '.claude.json'), JSON.stringify({ oauthAccount }))
   return dir
 }
+
+// what `claude --resume <unknown id>` prints before it exits (2.1.286)
+const NOT_FOUND = '\x1b[?25l\x1b[2K\rNo conversation found with session ID: 11111111-1111-4111-8111-111111111111\r\n\x1b[?25h'
+
+test('a --resume that exits after saying why was turned down by claude itself', () => {
+  assert.equal(resumeRejected({ tail: NOT_FOUND }), true)
+  assert.equal(resumeRejected({ tail: NOT_FOUND, signal: 0 }), true) // node-pty reports 0 for a plain exit
+})
+
+test('a --resume that exits without a word never ran claude, so the conversation is not at fault', () => {
+  assert.equal(resumeRejected({ tail: '', signal: 9 }), false) // macOS killing node-pty's spawn-helper (revoked signature)
+  assert.equal(resumeRejected({ tail: '' }), false)
+  assert.equal(resumeRejected({ tail: '\x1b[?25h\r\n' }), false) // escape codes alone are not a verdict
+})
+
+test('a --resume killed from outside is not a verdict on the conversation either', () => {
+  assert.equal(resumeRejected({ tail: 'Resuming conversation…', signal: 15 }), false)
+})
 
 test('planLabel tells Max 5x from 20x by the rate-limit tier in .claude.json', () => {
   assert.equal(planLabel(profileWith({ organizationRateLimitTier: 'default_claude_max_20x', userRateLimitTier: null }), 'max'), 'max 20x')

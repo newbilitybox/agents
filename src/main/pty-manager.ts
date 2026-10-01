@@ -79,7 +79,7 @@ export class PtyManager extends EventEmitter {
       if (entry.pending.length >= FLUSH_MAX) this.flush(id, entry)
       else if (!entry.flushTimer) entry.flushTimer = setTimeout(() => this.flush(id, entry), FLUSH_MS)
     })
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(({ exitCode, signal }) => {
       // a process replaced under the same id before it died (a login restarted
       // while the old one was still winding down) must not tear down its
       // successor's entry or announce an exit on its behalf
@@ -87,7 +87,7 @@ export class PtyManager extends EventEmitter {
       this.flush(id, entry) // trailing output must land before the exit event
       this.entries.delete(id)
       // the last screenful travels with the event — the entry is gone by now
-      this.emit('exit', { id, exitCode, tail: entry.chunks.join('').slice(-4000) })
+      this.emit('exit', { id, exitCode, signal, tail: entry.chunks.join('').slice(-4000) })
     })
   }
 
