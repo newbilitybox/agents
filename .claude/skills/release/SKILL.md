@@ -7,6 +7,7 @@ description: 打包、簽名、公證、發佈 Agent S 的 GitHub release（熱�
 
 ## 現況
 - **2026-10-01：下面這張 Developer ID 憑證已被 Apple 撤銷**（`security find-identity -v -p codesigning` 標 `CSSMERR_TP_CERT_REVOKED`，`spctl` 回報公證已撤銷）。用它簽的安裝（0.2.30 起的完整版）裡，macOS 會擋掉 node-pty 的 `spawn-helper`，claude 一律起不來，熱更修不了這個。熱更不受影響。換到有效的憑證前，完整版用 `pnpm release --full --unsigned` 發（0.2.34 起）：ad-hoc 簽名、不公證、不需要 `.env`；`--full` 單獨用會被腳本擋下（憑證無效）。ad-hoc 簽的是「封條有效」的包（`-c.mac.identity=-`），不是 `identity=null`：後者留下 Electron 原本的 linker 簽名卻沒有封條，`codesign --verify` 會報 `code has no resources but signature indicates they must be present`。代價：下載的人第一次打開要到「系統設定 → 隱私權與安全性」按「仍要打開」（未實測這個畫面）；沒有 team 簽名，通知走 osascript（Script Editor 名義，實測送得出去）。
+- 這個 team 從未公證成功：`notarytool history` 裡 0.2.30 的三次送件全是 Rejected，`notarytool log` 的原因是 status 7000「Team is not yet configured for notarization」，要先聯絡 Apple Developer Programs Support 開通。不是下面寫的「送件卡在 Apple」。換新憑證後先確認這點，否則簽了也公證不過。
 - 完整版（`--full`）用這台 Mac 鑰匙圈裡的 Developer ID Application 憑證（Huu Vinh Luong，team T9Q4RGHKDD）簽名，上傳前把 zip 送 Apple 公證、**不等結果**：新帳號頭幾次送件可能在 Apple 卡一小時以上；審過之後 Gatekeeper 會上網查到這份檔案的公證，不用重新上傳，審完前下載的人第一次打開仍會被擋。熱更只要 `app.asar`，它的 `--dir` 建置不簽名、不需要憑證。
 - 公證金鑰放在主目錄的 `.env`（gitignored；`pnpm release`、`pnpm package` 會自動載入）：`APPLE_API_KEY`＝`build/AuthKey_<id>.p8` 的絕對路徑、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`。在 worktree 裡發佈，先 `set -a; . /Users/kimi/work/agents/.env; set +a`。
 - 上傳用 `gh`，先 `gh auth login`。GitHub Actions 沒有憑證與金鑰，只能發熱更；完整版在這台 Mac 上發。
