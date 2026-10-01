@@ -26,7 +26,8 @@
 **其他**
 - 跨帳號 session 互通：所有帳號共用一份 session registry，`ListAgents`／`SendMessage` 不再侷限於同一帳號。
 - 選單列常駐；退出時可選「背景執行」保留執行中的 session；系統通知（需處理／完成／限額／模型回退）；in-app 更新；繁簡中文＋英文、深淺色主題。
-- 系統通知需要簽名版（0.2.30 起的安裝包）才是原生通知，點擊會跳到該 session；0.2.29 以前的未簽名安裝與開發版改以「Script Editor」名義顯示，點擊不會跳過去。從舊版升級要重新下載 DMG 安裝一次。
+- 系統通知要帶 Developer ID 簽名的安裝才是原生通知，點擊會跳到該 session；沒有這種簽名的安裝（0.2.29 以前、0.2.34 起以 ad-hoc 簽名發佈的完整版）與開發版改以「Script Editor」名義顯示，點擊不會跳過去。
+- 0.2.30～0.2.33 的安裝包是用一張後來被 Apple 撤銷的憑證簽的：在這些安裝上 session 打不開、登入拿不到連結，熱更修不了，要下載 0.2.34 以後的 DMG 重新安裝。第一次打開新的安裝包時，macOS 會要你到「系統設定 → 隱私權與安全性」按「仍要打開」。
 
 ## 開發
 
@@ -45,9 +46,10 @@ pnpm test        # 單元測試（Node 內建 test runner）
 pnpm release --dry-run           # 只建置、列出會上傳什麼
 pnpm release --notes "修了 X"     # 熱更：只換 app.asar，使用者按「更新並重啟」即可
 pnpm release --full --notes "…"  # 附簽名的 DMG/zip 並送 Apple 公證；換過 Electron／node-pty 時必須用
+pnpm release --full --unsigned --notes "…"  # 沒有有效憑證時：DMG/zip 以 ad-hoc 簽名、不公證
 ```
 
-完整版在有 Developer ID 憑證與公證金鑰（`.env`）的 Mac 上發佈，上傳需要登入的 `gh`。細節見 `.claude/skills/release/SKILL.md`。
+簽名的完整版在有 Developer ID 憑證與公證金鑰（`.env`）的 Mac 上發佈；憑證無效時腳本會擋下，改用 `--unsigned`。上傳需要登入的 `gh`。細節見 `.claude/skills/release/SKILL.md`。
 
 ## 已知限制
 - 閒置帳號的用量靠定期（每 15 分鐘，以及打開設定時）跑 `claude -p /usage` 取得；執行中的 session 由 statusline 即時回報。各模型（如 Fable）的窗口只有前者有。

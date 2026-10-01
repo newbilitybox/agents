@@ -11,6 +11,7 @@
  *   pnpm release --dry-run [--full]     build + stage only, print what would upload
  *   pnpm release --notes "fix …"        hot-only release
  *   pnpm release --full --notes "…"     also build + upload full installers
+ *   pnpm release --full --unsigned …    the same without a Developer ID certificate
  *
  * Enforced rules:
  *   - package.json version must be newer than the published latest.json
@@ -23,6 +24,10 @@
  * which `pnpm release` sources — see .claude/skills/release). The hot package
  * only needs the app.asar, so its throwaway --dir build stays unsigned and
  * needs no credentials.
+ *
+ * --unsigned is for when there is no valid certificate: the installers are
+ * signed ad-hoc and not notarized, so macOS asks whoever downloads one to
+ * allow it on first open, and the app has no native notifications.
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -39,7 +44,16 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : undefined
 }
 const full = flag('--full')
+const unsigned = flag('--unsigned')
 const dryRun = flag('--dry-run')
+/**
+ * A valid ad-hoc signature instead of none at all. With identity=null the
+ * bundle keeps Electron's own linker signature, which repackaging leaves
+ * without a seal (`codesign --verify` fails: "code has no resources but
+ * signature indicates they must be present"); ad-hoc signing seals it again.
+ * The hardened runtime only matters to notarization.
+ */
+const AD_HOC = ['-c.mac.identity=-', '-c.mac.hardenedRuntime=false']
 
 const die = (msg) => {
   console.error(`release: ${msg}`)
@@ -79,12 +93,22 @@ if (tagTaken) die(`a v${version} release already exists on GitHub — bump packa
 // ── build ───────────────────────────────────────────────────────────────────
 // check the signing prerequisites up front, not after minutes of building
 const { APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER } = process.env
-if (full) {
+if (unsigned && !full) die('--unsigned only applies to --full: a hot package is never signed')
+if (full && !unsigned) {
   if (!APPLE_API_KEY || !APPLE_API_KEY_ID || !APPLE_API_ISSUER) {
     die('--full notarizes the installers: APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER not set (.env, see .claude/skills/release)')
   }
-  const identities = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' })
-  if (!identities.includes('Developer ID Application')) die('--full signs the installers: no Developer ID Application certificate in the keychain')
+  const certs = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' })
+    .split('\n')
+    .filter((l) => l.includes('Developer ID Application'))
+  if (certs.length === 0) die('--full signs the installers: no Developer ID Application certificate in the keychain')
+  // the keychain lists a revoked or expired certificate too, flagged at the
+  // end of its line (CSSMERR_TP_CERT_REVOKED). An app signed with a revoked
+  // one installs and opens, but macOS kills node-pty's spawn-helper in it:
+  // no claude ever starts
+  if (certs.every((l) => /CSSMERR_TP_CERT_/.test(l))) {
+    die(`the Developer ID Application certificate is not valid:\n${certs.join('\n')}\nget a new one, or release with --full --unsigned`)
+  }
 }
 rmSync(join(root, 'release'), { recursive: true, force: true }) // stale artifacts would pollute the asset list
 run('pnpm', ['build'])
@@ -108,7 +132,7 @@ if (full) {
     run('pnpm', ['exec', 'electron-rebuild', '-f', '-w', 'node-pty', '--arch', arch])
     // --publish never: with GH_TOKEN in the env (CI), electron-builder's own
     // GitHub publisher would kick in and fight the gh upload below
-    run('pnpm', ['exec', 'electron-builder', '--mac', `--${arch}`, '--publish', 'never']) // signed per the yml
+    run('pnpm', ['exec', 'electron-builder', '--mac', `--${arch}`, '--publish', 'never', ...(unsigned ? AD_HOC : [])]) // else signed per the yml
     verifyNativeArch(arch)
   }
 } else {
@@ -147,7 +171,7 @@ if (full) {
   }
 }
 
-console.log(`\nrelease v${version}  (runtime: ${runtime}${full ? ', full' : ', hot-only'})`)
+console.log(`\nrelease v${version}  (runtime: ${runtime}${full ? (unsigned ? ', full, unsigned' : ', full') : ', hot-only'})`)
 for (const a of assets) console.log(`  ${a}`)
 if (dryRun) {
   console.log('\n--dry-run: nothing uploaded. Manifest:')
@@ -160,7 +184,7 @@ if (dryRun) {
 // the release for them. Once Apple accepts, Gatekeeper finds the ticket online
 // for these exact binaries — nothing to re-upload; until then a fresh download
 // is still blocked on first open. The zips carry the same signed app as the DMGs.
-if (full) {
+if (full && !unsigned) {
   for (const zip of assets.filter((a) => a.endsWith('.zip'))) {
     const out = execFileSync(
       'xcrun',
